@@ -1,0 +1,29 @@
+#!/usr/bin/env python3
+"""SubagentStart hook: renders the same summary via JSON additionalContext.
+
+MEASURED (shfmt-permissions' subagent-start-render.py): SubagentStart
+requires the {"hookSpecificOutput": {"hookEventName": "SubagentStart",
+"additionalContext": "..."}} envelope - plain stdout is silently discarded
+here, unlike SessionStart. Subagents run Bash constantly and SessionStart
+does not fire for them, so this is the vehicle that reaches them.
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from config_loader import load_config_from_environment
+from hook_envelopes import subagent_start_envelope
+
+
+def main():
+    sys.stdin.read()
+    config = load_config_from_environment()
+    print(json.dumps(subagent_start_envelope(config)))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

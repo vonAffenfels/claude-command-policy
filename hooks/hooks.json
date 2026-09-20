@@ -1,0 +1,81 @@
+{
+    "description": "Deterministic permission analysis for Bash commands and file-access paths",
+    "hooks": {
+        "PreToolUse": [
+            {
+                "matcher": "Bash",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-analyze-bash-command",
+                        "timeout": 10
+                    }
+                ]
+            },
+            {
+                "matcher": "Read",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-analyze-path",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "matcher": "Grep",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-analyze-path",
+                        "timeout": 5
+                    }
+                ]
+            },
+            {
+                "matcher": "Glob",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-analyze-path",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "SessionStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-render-session-start",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "SubagentStart": [
+            {
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-render-subagent-start",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ],
+        "PostToolUse": [
+            {
+                "matcher": "Write|Edit",
+                "hooks": [
+                    {
+                        "type": "command",
+                        "command": "${CLAUDE_PLUGIN_ROOT}/bin/command-policy-lint-config-on-write",
+                        "timeout": 5
+                    }
+                ]
+            }
+        ]
+    }
+}

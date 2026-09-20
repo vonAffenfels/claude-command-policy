@@ -1,0 +1,8 @@
+{
+    "name": "command-policy",
+    "description": "Deterministic, rule-based permission decisions for commands and file access. Same input, same verdict, every time — no model judgment in the loop.",
+    "version": "0.5.1",
+    "author": {
+        "name": "Entwickler"
+    }
+}

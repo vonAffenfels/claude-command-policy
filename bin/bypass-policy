@@ -1,0 +1,33 @@
+#!/usr/bin/env python3
+"""bypass-policy: the escape hatch's runtime half.
+
+Does nothing but exec what it was passed. Its entire value is that
+Config.decision_for (lib/escalation_policy.py) recognizes anything wrapped
+in it as a distinct case and transforms the ordinary decision - `ask` for a
+blocked command, a sensitive path, or a redirect landing outside the
+project/allowed prefixes (never silently laundered around), `passthrough`
+for anything else - rather than a dead-ending `deny`. See
+escalation_policy.py's module docstring for the full outcome mapping and the
+"sole invoked program" recognition rule.
+
+Usage:
+  bypass-policy <command> [args...]
+  bypass-policy bash -c 'cat file.txt && python3 script.py'
+"""
+
+import os
+import sys
+
+
+def main(argv):
+    if not argv:
+        return 0
+    try:
+        os.execvp(argv[0], argv)
+    except OSError as error:
+        print(f"bypass-policy: {argv[0]}: {error}", file=sys.stderr)
+        return 127
+
+
+if __name__ == "__main__":
+    raise SystemExit(main(sys.argv[1:]))

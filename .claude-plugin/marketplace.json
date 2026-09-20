@@ -1,0 +1,18 @@
+{
+    "name": "claude-command-policy",
+    "description": "Home of the command-policy plugin: deterministic, rule-based permission decisions for Claude Code.",
+    "owner": {
+        "name": "Entwickler"
+    },
+    "plugins": [
+        {
+            "name": "command-policy",
+            "source": "./",
+            "description": "Deterministic, rule-based permission decisions for commands and file access. Same input, same verdict, every time — no model judgment in the loop.",
+            "version": "0.5.1",
+            "author": {
+                "name": "Entwickler"
+            }
+        }
+    ]
+}

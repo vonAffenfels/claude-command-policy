@@ -1,0 +1,25 @@
+[
+  { "id": "C1", "model": "haiku",  "ms": 4833,  "candidate": "rg \"EQUIVALENCE_POINTER\" packages/" },
+  { "id": "C1", "model": "sonnet", "ms": 2355,  "candidate": "grep -r \"EQUIVALENCE_POINTER\" packages/" },
+  { "id": "C1", "model": "opus",   "ms": 2378,  "candidate": "rg \"EQUIVALENCE_POINTER\" packages/" },
+
+  { "id": "C2", "model": "haiku",  "ms": 40260, "candidate": "find packages/command-policy -maxdepth 2 -type f" },
+  { "id": "C2", "model": "sonnet", "ms": 2468,  "candidate": "find packages/command-policy -maxdepth 2" },
+  { "id": "C2", "model": "opus",   "ms": 2940,  "candidate": "find packages/command-policy -maxdepth 2" },
+
+  { "id": "C3", "model": "haiku",  "ms": 11631, "candidate": "awk '{count[$1]++} END {for (word in count) print count[word], word}' packages/command-policy/lib/config.py | sort -n" },
+  { "id": "C3", "model": "sonnet", "ms": 6648,  "candidate": "awk '{c[$1]++} END {for (k in c) print c[k], k}' packages/command-policy/lib/config.py | sort" },
+  { "id": "C3", "model": "opus",   "ms": 5346,  "candidate": "python3 -c \"import collections;print('\\n'.join(f'{n:7} {t}' for t,n in sorted(collections.Counter(l.split()[0] for l in open('packages/command-policy/lib/config.py') if l.split()).items())))\"" },
+
+  { "id": "C4", "model": "haiku",  "ms": 7445,  "candidate": "grep -r -l \"PermissionDecision\" packages/command-policy/lib/ --include=\"*.py\"" },
+  { "id": "C4", "model": "sonnet", "ms": 2699,  "candidate": "grep -l \"PermissionDecision\" packages/command-policy/lib/*.py" },
+  { "id": "C4", "model": "opus",   "ms": 2682,  "candidate": "grep -rl \"PermissionDecision\" packages/command-policy/lib --include=*.py" },
+
+  { "id": "C5", "model": "haiku",  "ms": 10419, "candidate": "grep -c '^def ' packages/command-policy/lib/*.py | sort -rn | head -5" },
+  { "id": "C5", "model": "sonnet", "ms": 7518,  "candidate": "grep -c '^def ' packages/command-policy/lib/*.py | sort -t: -k2 -rn | head -5" },
+  { "id": "C5", "model": "opus",   "ms": 4972,  "candidate": "grep -c '^def ' packages/command-policy/lib/*.py | sort -t: -k2 -rn | head -5" },
+
+  { "id": "C6", "model": "haiku",  "ms": 9474,  "candidate": "NONE" },
+  { "id": "C6", "model": "sonnet", "ms": 3490,  "candidate": "NONE" },
+  { "id": "C6", "model": "opus",   "ms": 4916,  "candidate": "NONE" }
+]

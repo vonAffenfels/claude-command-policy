@@ -1,0 +1,40 @@
+#!/usr/bin/env python3
+"""PreToolUse hook entrypoint for the Bash matcher.
+
+Reads the hook payload from stdin, decides via the merged Config's
+decision_for, and prints hook_envelopes.pretooluse_bash_response as JSON.
+A passthrough decision (and malformed/command-less stdin) prints nothing,
+which Claude Code treats as "no opinion" and falls through to its own
+logic - see improvement-20260914-213825's Proposed Approach, Part A.
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from config_loader import load_config_from_environment
+from hook_envelopes import pretooluse_bash_response
+
+
+def main():
+    try:
+        input_data = json.loads(sys.stdin.read())
+    except json.JSONDecodeError:
+        return 0
+
+    command = (input_data.get("tool_input") or {}).get("command")
+    if not command:
+        return 0
+
+    config = load_config_from_environment()
+    decision = config.decision_for(command)
+    response = pretooluse_bash_response(decision)
+    if response is not None:
+        print(json.dumps(response))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

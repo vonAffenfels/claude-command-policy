@@ -1,0 +1,125 @@
+#!/usr/bin/env python3
+"""User-facing command-policy session-audit entrypoint.
+
+Replaces shfmt-permissions' shfmt-session-approvals. Reports which Bash
+commands run in a Claude Code session are NOT auto-approved under the
+current merged command-policy config - see lib/session_audit.py for the
+deterministic recompute this is a thin CLI wrapper over.
+"""
+
+import argparse
+import datetime
+import os
+import shutil
+import sys
+from pathlib import Path
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from config_loader import load_config_from_environment
+import session_audit
+
+
+def _project_transcript_dir(project_dir):
+    home = os.environ.get("HOME", "")
+    return Path(home) / ".claude" / "projects" / session_audit.encode_project_dir(project_dir)
+
+
+def _match_for_session_id(session_id, project_transcript_dir):
+    transcript_path = project_transcript_dir / f"{session_id}.jsonl"
+    if not transcript_path.exists():
+        return None
+    return session_audit.SessionMatch(
+        session_id=session_id,
+        transcript_path=transcript_path,
+        mtime=transcript_path.stat().st_mtime,
+        other_count=0,
+    )
+
+
+def _format_mtime(mtime):
+    return datetime.datetime.fromtimestamp(mtime).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _parse_args(argv):
+    parser = argparse.ArgumentParser(
+        prog="audit-session-policy",
+        description=(
+            "Report which Bash commands run in a Claude Code session are NOT "
+            "auto-approved by command-policy under the current merged config."
+        ),
+    )
+    parser.add_argument(
+        "session_name",
+        nargs="?",
+        help="Session name (custom title); the most-recently-modified match is analyzed.",
+    )
+    parser.add_argument(
+        "--session-id",
+        help="Target a specific session by id (disambiguates reused names).",
+    )
+    parser.add_argument(
+        "--no-subagents",
+        action="store_true",
+        help="Scope to the main transcript only (skip <session-id>/subagents/*.jsonl).",
+    )
+    parser.add_argument(
+        "--project-dir",
+        default=os.getcwd(),
+        help="Project working directory whose transcripts to search (default: cwd).",
+    )
+    return parser.parse_args(argv)
+
+
+def main(argv=None):
+    args = _parse_args(argv if argv is not None else sys.argv[1:])
+
+    if not args.session_name and not args.session_id:
+        print("error: provide a <session-name> or --session-id <uuid>.", file=sys.stderr)
+        return 2
+
+    project_transcript_dir = _project_transcript_dir(args.project_dir)
+    if not project_transcript_dir.is_dir():
+        print(f"error: no transcripts found at {project_transcript_dir}.", file=sys.stderr)
+        return 1
+
+    if args.session_id:
+        match = _match_for_session_id(args.session_id, project_transcript_dir)
+        if match is None:
+            print(
+                f"error: no transcript for --session-id {args.session_id} in {project_transcript_dir}.",
+                file=sys.stderr,
+            )
+            return 1
+    else:
+        match = session_audit.resolve_session(args.session_name, project_transcript_dir)
+        if match is None:
+            print(
+                f"error: no session titled '{args.session_name}' in {project_transcript_dir}.",
+                file=sys.stderr,
+            )
+            return 1
+
+    commands = session_audit.extract_bash_commands(
+        match.transcript_path, include_subagents=not args.no_subagents
+    )
+    permission_modes = session_audit.read_permission_modes(match.transcript_path)
+    config = load_config_from_environment()
+    buckets = session_audit.classify(commands, config)
+
+    report = session_audit.render(
+        buckets,
+        session_name=args.session_name or f"(--session-id {match.session_id})",
+        session_id=match.session_id,
+        transcript_path=match.transcript_path,
+        last_modified=_format_mtime(match.mtime),
+        permission_modes=permission_modes,
+        shfmt_present=shutil.which("shfmt") is not None,
+        other_count=match.other_count,
+    )
+    print(report)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

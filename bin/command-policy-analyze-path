@@ -1,0 +1,38 @@
+#!/usr/bin/env python3
+"""PreToolUse hook entrypoint for the Read/Grep/Glob matcher family.
+
+Reads the hook payload from stdin, decides via the merged Config's
+decision_for_path, and prints hook_envelopes.pretooluse_path_response as
+JSON. A passthrough decision (and malformed/path-less stdin) prints
+nothing, letting Claude Code's own permission rules decide.
+"""
+
+import json
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from config_loader import load_config_from_environment
+from hook_envelopes import path_from_tool_input, pretooluse_path_response
+
+
+def main():
+    try:
+        input_data = json.loads(sys.stdin.read())
+    except json.JSONDecodeError:
+        return 0
+
+    tool_name = input_data.get("tool_name", "")
+    path = path_from_tool_input(tool_name, input_data.get("tool_input"))
+
+    config = load_config_from_environment()
+    decision = config.decision_for_path(tool_name, path)
+    response = pretooluse_path_response(decision)
+    if response is not None:
+        print(json.dumps(response))
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())

@@ -1,0 +1,28 @@
+#!/usr/bin/env python3
+"""SessionStart hook: renders the merged config summary as plain stdout.
+
+MEASURED (shfmt-permissions' session-start-render.py): SessionStart consumes
+plain text on stdout (exit 0) as injected context - the OPPOSITE protocol
+from SubagentStart, which requires the JSON hookSpecificOutput.
+additionalContext envelope (see command-policy-render-subagent-start). A
+present-but-unparseable config file's warning rides along inside the same
+rendering, alongside what is currently auto-allowed.
+"""
+
+import os
+import sys
+
+sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
+
+from config_loader import load_config_from_environment
+
+
+def main():
+    sys.stdin.read()
+    config = load_config_from_environment()
+    print(config.explain())
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
