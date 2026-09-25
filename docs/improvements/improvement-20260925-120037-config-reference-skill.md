@@ -3,10 +3,11 @@
 ## Meta
 
 - Related Ticket: None
-- Status: planned
+- Status: ready-to-implement
 - Created: 2026-09-25
 - Updated: 2026-09-25
 - Plan started: 2026-09-25T12:00:37+02:00
+- Plan finished: 2026-09-25T15:40:41+02:00
 
 ## This Improvement's Objective
 
