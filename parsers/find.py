@@ -204,10 +204,26 @@ def parse_find_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). find never publishes on the
+    nestedCommands channel - `-exec`'s command is reported only as the
+    `exec_command` named value, not propagated through the wrapper-command
+    machinery."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["execPresent", "deletePresent", "exec_command", "type"],
+        "optionsWithValues": sorted(PRIMARIES_WITH_ONE_ARG | EXEC_ACTIONS),
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_find_args(arguments)
         print(json.dumps(result))

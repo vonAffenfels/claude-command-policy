@@ -164,10 +164,28 @@ def parse_nix_args(arguments: list[str]) -> dict[str, Any]:
     return result
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). nix CAN publish a nested command
+    (`-c`/`--command`), even though a given invocation may not - see this
+    module's docstring on the honest-absence rule for `nix run`/`-c`-less
+    invocations."""
+    return {
+        "publishesNestedCommands": True,
+        "namedValues": ["subcommand", "installable", "command"],
+        "optionsWithValues": sorted(
+            OPTIONS_WITH_ONE_ARGUMENT | OPTIONS_WITH_TWO_ARGUMENTS | COMMAND_OPTIONS
+        ),
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_nix_args(arguments)
         print(json.dumps(result))

@@ -314,10 +314,24 @@ def parse_awk_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). awk never wraps another command. Shared
+    by gawk.py, which delegates to this module wholesale."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["program", "programFile", "variables", "containsProgramCalls"],
+        "optionsWithValues": ["-f", "--file", "-v", "--assign", "-e", "--source", "-F", "--field-separator"],
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_awk_args(arguments)
         print(json.dumps(result))

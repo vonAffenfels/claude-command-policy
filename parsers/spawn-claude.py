@@ -153,10 +153,27 @@ def parse_spawn_claude_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). spawn-claude never wraps another command
+    in the nestedCommands sense (the forwarded-args span is a flat argument
+    list to `claude`, not a further sub-invocation), and classify_forwarded_
+    span never assigns a value to any option (see its own `arguments: []`
+    above), so no option here ever consumes a value."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["sessionName", "forwardedFlags", "prompt"],
+        "optionsWithValues": [],
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_spawn_claude_args(arguments)
         print(json.dumps(result))

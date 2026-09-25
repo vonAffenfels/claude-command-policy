@@ -251,10 +251,39 @@ def parse_nix_shell_args(arguments: list[str]) -> dict[str, Any]:
     return result
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). nix-shell CAN publish a nested command
+    (`--run`/`--command`), even though a bare invocation with neither
+    publishes nothing - see this module's docstring."""
+    return {
+        "publishesNestedCommands": True,
+        "namedValues": [
+            "command",
+            "packages",
+            "attr",
+            "pure",
+            "expr",
+            "path",
+            "keep",
+            "include",
+            "arg",
+            "argstr",
+            "interpreter",
+        ],
+        "optionsWithValues": sorted(
+            OPTIONS_WITH_ONE_ARGUMENT | OPTIONS_WITH_TWO_ARGUMENTS | MULTI_VALUE_OPTIONS
+        ),
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_nix_shell_args(arguments)
         print(json.dumps(result))

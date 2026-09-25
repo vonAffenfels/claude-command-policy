@@ -113,10 +113,25 @@ def parse_timeout_args(arguments: list[str]) -> dict[str, Any]:
     return result
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). timeout CAN publish a nested command,
+    even though `timeout 10` with no inner command publishes nothing - see
+    this module's docstring."""
+    return {
+        "publishesNestedCommands": True,
+        "namedValues": ["signal", "duration", "command"],
+        "optionsWithValues": sorted(OPTIONS_WITH_ONE_ARGUMENT),
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_timeout_args(arguments)
         print(json.dumps(result))

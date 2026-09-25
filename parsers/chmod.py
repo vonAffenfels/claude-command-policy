@@ -313,10 +313,40 @@ def parse_chmod_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). chmod never wraps another command. Every
+    recognised option (-R/--recursive, -c/--changes, -f/--silent/--quiet,
+    -v/--verbose, --preserve-root/--no-preserve-root, -h,
+    --no-dereference/--dereference, --reference) is matched as a flag by
+    parse_chmod_args's own elif chain before the dedicated `--reference`
+    branch is ever reached, so NO option here ever consumes a value."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": [
+            "mode",
+            "recursive",
+            "setsUserExecutable",
+            "setsGroupExecutable",
+            "setsOthersExecutable",
+            "setsUserWritable",
+            "setsGroupWritable",
+            "setsOthersWritable",
+            "setsSetuid",
+            "setsSetgid",
+            "setsSticky",
+        ],
+        "optionsWithValues": [],
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_chmod_args(arguments)
         print(json.dumps(result))

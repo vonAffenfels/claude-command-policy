@@ -24,7 +24,8 @@ spec.loader.exec_module(awk)
 
 
 def main():
-    """Main entry point - delegates to awk.main()."""
+    """Main entry point - delegates to awk.main() (which handles the
+    describe channel too - improvement 20260925-120037)."""
     awk.main()
 
 

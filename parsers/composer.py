@@ -189,10 +189,27 @@ def parse_composer_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). composer never wraps another command.
+    Only `-d`/`--working-dir` is actually given the "consume the next
+    argument" treatment in parse_composer_args - every other member of
+    OPTIONS_WITH_ARGUMENTS falls through to the flag branch, so it is
+    excluded here."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["subcommand", "packages", "script", "global"],
+        "optionsWithValues": ["-d", "--working-dir"],
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_composer_args(arguments)
         print(json.dumps(result))

@@ -41,6 +41,30 @@ def run_parser(parser_name: str, arguments: list[str]) -> dict:
     return json.loads(result.stdout)
 
 
+def run_parser_describe(parser_name: str) -> dict:
+    """Ask a bundled parser script its own static capabilities via the
+    describe protocol (stdin {"describe": true}) - improvement
+    20260925-120037. Every bundled parser must answer this, not only the
+    four wrapper parsers `run_parser` above is scoped to."""
+    parser_path = PARSERS_DIR / f"{parser_name}.py"
+
+    result = subprocess.run(
+        [sys.executable, str(parser_path)],
+        input=json.dumps({"describe": True}),
+        capture_output=True,
+        text=True,
+        timeout=5,
+    )
+
+    if result.returncode != 0:
+        raise RuntimeError(f"Parser describe failed: {result.stderr}")
+
+    return json.loads(result.stdout)
+
+
+ALL_BUNDLED_PARSER_NAMES = sorted(p.stem for p in PARSERS_DIR.glob("*.py"))
+
+
 # =============================================================================
 # Test: timeout.py's nestedCommands output
 # =============================================================================
@@ -297,3 +321,54 @@ class TestSpawnClaudeParserForwardedArgsPathCandidacy:
         assert result["named"]["prompt"] == "hello world"
         assert "myname" not in [o["name"] for o in result["options"]]
         assert "myname" not in [p["value"] for p in result["positionals"]]
+
+
+# =============================================================================
+# Describe protocol (improvement 20260925-120037): every bundled parser must
+# answer stdin {"describe": true} with its own static capabilities. Checked
+# against what the script ACTUALLY publishes, not only against its own
+# declared shape - see WRAPPER_PARSER_NAMES/test_describe_options_with_
+# values_actually_consume_a_value below.
+# =============================================================================
+
+WRAPPER_PARSER_NAMES = {"timeout", "nix", "nix-shell", "xargs"}
+
+
+@pytest.mark.parametrize("parser_name", ALL_BUNDLED_PARSER_NAMES)
+def test_describe_reports_the_required_keys_with_correct_types(parser_name):
+    description = run_parser_describe(parser_name)
+
+    assert isinstance(description["publishesNestedCommands"], bool)
+    assert isinstance(description["namedValues"], list)
+    assert all(isinstance(value, str) for value in description["namedValues"])
+    assert isinstance(description["optionsWithValues"], list)
+    assert all(isinstance(value, str) for value in description["optionsWithValues"])
+
+
+@pytest.mark.parametrize("parser_name", ALL_BUNDLED_PARSER_NAMES)
+def test_describe_publishes_nested_commands_matches_whether_the_parser_ever_populates_the_channel(parser_name):
+    """The four wrapper parsers (xargs, nix, nix-shell, timeout) are the
+    only bundled scripts that can ever populate `nestedCommands`; every
+    other bundled parser must describe itself as unable to."""
+    description = run_parser_describe(parser_name)
+
+    assert description["publishesNestedCommands"] is (parser_name in WRAPPER_PARSER_NAMES)
+
+
+@pytest.mark.parametrize("parser_name", ALL_BUNDLED_PARSER_NAMES)
+def test_describe_options_with_values_actually_consume_a_value(parser_name):
+    """Cross-checks describe()'s `optionsWithValues` claim against real
+    parser output: for every option it names, a bare `[option, probe]`
+    invocation must produce that option WITH a non-empty `arguments` list -
+    otherwise the description is claiming a capability the parser does not
+    actually have."""
+    description = run_parser_describe(parser_name)
+
+    for option in description["optionsWithValues"]:
+        result = run_parser(parser_name, [option, "probe-value"])
+        matching = [o for o in result["options"] if o["name"] == option]
+
+        assert matching, f"{parser_name}: describe() names {option!r} but it never appears in options output"
+        assert matching[0]["arguments"], (
+            f"{parser_name}: describe() claims {option!r} consumes a value but it produced none"
+        )

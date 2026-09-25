@@ -574,9 +574,9 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
       `_collect_allowed_command_filter_warnings`.
 - [x] Re-adjudicate the 21 `pytest.raises(ConfigError)` tests to "never vouches + problem reported".
 - [x] Milestone: full suite green with no decision-time `ConfigError` left for `allowedCommands` defects.
-- [ ] Describe protocol: describer edge object (stdin `{"describe": true}`, memo per instance, contract validation) next
+- [x] Describe protocol: describer edge object (stdin `{"describe": true}`, memo per instance, contract validation) next
       to `ExternalParserFactory`.
-- [ ] All 17 bundled parsers answer describe (`publishesNestedCommands`, named values, `optionsWithValues`). A test
+- [x] All 17 bundled parsers answer describe (`publishesNestedCommands`, named values, `optionsWithValues`). A test
       checks each description against actual output. Add contract-breach fixtures.
 - [ ] `Config.described_problems(describer)` + `with_additional_warnings`. Wire into
       `command-policy-render-session-start`, `command-policy-render-subagent-start`, `explain-policy`,

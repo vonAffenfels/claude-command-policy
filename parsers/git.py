@@ -204,10 +204,23 @@ def parse_git_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). git never wraps another command."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["subcommand", "message", "message_file"],
+        "optionsWithValues": sorted(OPTIONS_WITH_ARGUMENTS),
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_git_args(arguments)
         print(json.dumps(result))

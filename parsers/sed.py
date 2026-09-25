@@ -243,10 +243,28 @@ def parse_sed_args(arguments: list[str]) -> dict[str, Any]:
     }
 
 
+def describe() -> dict[str, Any]:
+    """Static capabilities this parser answers via stdin {"describe": true}
+    (improvement 20260925-120037). sed never wraps another command. `-i`/
+    `--in-place` is deliberately EXCLUDED from optionsWithValues: whether it
+    consumes the following token as a backup suffix depends on that token's
+    own shape (a short, dot-prefixed word - see parse_sed_args), so it does
+    not reliably populate `arguments` the way an `optionValue` filter needs.
+    `-e`/`--expression` and `-f`/`--file` consume unconditionally."""
+    return {
+        "publishesNestedCommands": False,
+        "namedValues": ["inPlace", "inPlaceBackup", "expression", "scriptFile", "containsDangerousCommands"],
+        "optionsWithValues": ["-e", "--expression", "-f", "--file"],
+    }
+
+
 def main():
     """Main entry point."""
     try:
         input_data = json.loads(sys.stdin.read())
+        if input_data.get("describe"):
+            print(json.dumps(describe()))
+            return
         arguments = input_data.get("arguments", [])
         result = parse_sed_args(arguments)
         print(json.dumps(result))
