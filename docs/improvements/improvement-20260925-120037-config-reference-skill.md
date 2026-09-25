@@ -3,12 +3,13 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-progress
+- Status: completed
 - Created: 2026-09-25
 - Updated: 2026-09-25
 - Plan started: 2026-09-25T12:00:37+02:00
 - Plan finished: 2026-09-25T15:40:41+02:00
 - Impl started: 2026-09-25T15:43:16+02:00
+- Impl finished: 2026-09-25T16:30:27+02:00
 
 ## This Improvement's Objective
 
@@ -617,6 +618,6 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 - [x] `skills/migrate-config/SKILL.md`: "Where to write" points at `command-policy:config`.
 - [x] Update the knowledgebase (Load-Time Rejection, opaque storage superseded, describe protocol, advertising,
       glossary). Note the absorbed parts in `improvement-20260920-152953`'s file.
-- [ ] Bump the version in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
-- [ ] Run the full suite: `cd tests && nix-shell --run pytest`.
-- [ ] Update status to completed
+- [x] Bump the version in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
+- [x] Run the full suite: `cd tests && nix-shell --run pytest`.
+- [x] Update status to completed
