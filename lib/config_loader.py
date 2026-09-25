@@ -21,17 +21,19 @@ from pathlib import Path
 
 from config import Config
 from layer_presence import LayerPresence
+from path_resolution import PathResolutionContext
 from warning_value import Warning
 
 USER_CONFIG_RELATIVE_PATH = Path(".claude") / "command-policy.json"
 PROJECT_CONFIG_RELATIVE_PATH = Path(".claude") / "command-policy.json"
 
 
-def load_config(user_config_path, project_config_path):
+def load_config(user_config_path, project_config_path, path_resolution=None):
+    context = path_resolution or PathResolutionContext.for_project()
     return (
-        Config.defaults()
-        .merged_with(_load_layer(user_config_path, layer="user"))
-        .merged_with(_load_layer(project_config_path, layer="project"))
+        Config.defaults(path_resolution=context)
+        .merged_with(_load_layer(user_config_path, layer="user", path_resolution=context))
+        .merged_with(_load_layer(project_config_path, layer="project", path_resolution=context))
     )
 
 
@@ -42,16 +44,17 @@ def load_config_from_environment():
     return load_config(
         home / USER_CONFIG_RELATIVE_PATH,
         project_dir / PROJECT_CONFIG_RELATIVE_PATH,
+        path_resolution=PathResolutionContext.for_project(),
     )
 
 
-def _load_layer(path, layer):
+def _load_layer(path, layer, path_resolution):
     path = Path(path)
     found = path.exists()
     presence = LayerPresence.of(layer, str(path), found=found)
 
     if not found:
-        return Config.defaults().with_layer_presence(presence)
+        return Config.defaults(path_resolution=path_resolution).with_layer_presence(presence)
 
     try:
         raw = json.loads(path.read_text())
@@ -59,6 +62,7 @@ def _load_layer(path, layer):
         return Config(
             warnings=(Warning.unparseable_config_file(layer=layer, path=str(path)),),
             layer_presence=presence,
+            path_resolution=path_resolution,
         )
 
-    return Config.from_dict(raw, source=layer).with_layer_presence(presence)
+    return Config.from_dict(raw, source=layer, path_resolution=path_resolution).with_layer_presence(presence)

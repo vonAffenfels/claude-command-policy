@@ -113,6 +113,22 @@ def test_is_contained_resolves_an_allowed_prefix_through_the_injected_realpath_p
     assert context.is_contained("/real/target/file.txt", allowed_prefixes=["/link/target"]) is True
 
 
+def test_for_project_roots_at_claude_project_dir_when_set(monkeypatch, tmp_path):
+    monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(tmp_path))
+
+    context = PathResolutionContext.for_project()
+
+    assert context.absolute_path_of("file.txt") == str(tmp_path / "file.txt")
+
+
+def test_for_project_falls_back_to_process_cwd_when_claude_project_dir_is_unset(monkeypatch):
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+    context = PathResolutionContext.for_project()
+
+    assert context.absolute_path_of("file.txt") == os.path.join(os.getcwd(), "file.txt")
+
+
 def test_absolute_path_of_resolves_a_real_symlink_to_its_actual_target(tmp_path):
     """The one deliberate real-filesystem exception in this suite (see the
     improvement file's Implementation Notes): the thing under test is

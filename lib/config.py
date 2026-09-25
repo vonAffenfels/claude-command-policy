@@ -19,8 +19,6 @@ this - see its module docstring.
 
 from __future__ import annotations
 
-import os
-
 from allowed_command import AllowedCommand
 from blocked_commands_policy import BlockedCommandsPolicy
 from command_substitution_policy import CommandSubstitutionPolicy
@@ -91,6 +89,7 @@ class Config:
         warnings=(),
         source="config",
         layer_presence=None,
+        path_resolution=None,
     ):
         self._allowed_commands = tuple(allowed_commands)
         self._blocked_commands = blocked_commands or BlockedCommands.from_entries(())
@@ -103,15 +102,16 @@ class Config:
         self._warnings = tuple(warnings)
         self._source = source
         self._layer_presence = layer_presence or LayerPresence.empty()
+        self._path_resolution = path_resolution or PathResolutionContext.for_project()
 
     # -- construction ---------------------------------------------------
 
     @classmethod
-    def defaults(cls):
-        return cls()
+    def defaults(cls, path_resolution=None):
+        return cls(path_resolution=path_resolution)
 
     @classmethod
-    def from_dict(cls, cfg, source="config"):
+    def from_dict(cls, cfg, source="config", path_resolution=None):
         cfg = cfg or {}
 
         response, response_explicit, response_warnings = _resolve_command_substitution_response(cfg, source)
@@ -129,6 +129,7 @@ class Config:
             command_substitution_response_explicit=response_explicit,
             warnings=response_warnings + filter_warnings,
             source=source,
+            path_resolution=path_resolution,
         )
 
     # -- properties -------------------------------------------------------
@@ -176,6 +177,7 @@ class Config:
             warnings=self._warnings,
             source=self._source,
             layer_presence=self._layer_presence,
+            path_resolution=self._path_resolution,
         )
         fields.update(overrides)
         return Config(**fields)
@@ -206,6 +208,9 @@ class Config:
 
     def with_layer_presence(self, layer_presence):
         return self._replace(layer_presence=layer_presence)
+
+    def with_path_resolution(self, path_resolution):
+        return self._replace(path_resolution=path_resolution)
 
     # -- merge --------------------------------------------------------------
 
@@ -349,10 +354,10 @@ class Config:
             BlockedCommandsPolicy(self._blocked_commands),
             CommandSubstitutionPolicy(self._command_substitution_response == "deny"),
             SensitiveVariablesPolicy(self._sensitive_variables, command_text),
-            RedirectPathValidationPolicy(self._path_resolution(), self._allowed_path_prefixes.names),
+            RedirectPathValidationPolicy(self._path_resolution, self._allowed_path_prefixes.names),
             AllowedCommandPolicy(
                 self._allowed_commands,
-                self._path_resolution(),
+                self._path_resolution,
                 self._allowed_path_prefixes.names,
                 recurse_via_allowed_commands=(self._command_substitution_response == "via-allowed-commands"),
                 evaluate_nested_text=lambda text, next_depth: self._decision_for_text(
@@ -376,17 +381,7 @@ class Config:
         20260914-213825's own addition - see path_config.py's module
         docstring): allowedPaths is its own decision domain, so this never
         denies, only allows or abstains (`passthrough`)."""
-        return path_permission_decision_for(tool_name, path, self._path_config, self._path_resolution())
-
-    def _path_resolution(self):
-        project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-        return PathResolutionContext(
-            cwd=project_dir,
-            home=os.path.expanduser("~"),
-            exists_predicate=os.path.exists,
-            is_directory_predicate=os.path.isdir,
-            realpath_predicate=os.path.realpath,
-        )
+        return path_permission_decision_for(tool_name, path, self._path_config, self._path_resolution)
 
 
 def _parse_and_normalize(command):

@@ -65,6 +65,20 @@ class PathResolutionContext:
             realpath_predicate=os.path.realpath,
         )
 
+    @classmethod
+    def for_project(cls):
+        """Like `for_process()`, but rooted at `CLAUDE_PROJECT_DIR` (falling
+        back to the process cwd) - the project-boundary root every
+        production consumer actually wants (was `Config._path_resolution()`
+        before construction-time binding moved it here)."""
+        return cls(
+            cwd=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()),
+            home=os.path.expanduser("~"),
+            exists_predicate=os.path.exists,
+            is_directory_predicate=os.path.isdir,
+            realpath_predicate=os.path.realpath,
+        )
+
     def absolute_path_of(self, value):
         return self._realpath(self._lexical_absolute_path_of(value))
 
