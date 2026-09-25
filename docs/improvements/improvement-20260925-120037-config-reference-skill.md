@@ -610,8 +610,8 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 - [x] `add-allow-policy`: the ask path refuses a proposal with static or described problems via a new Reason / violation
       code rendered by `reason_renderer`. The write side re-checks.
 - [x] Milestone: full suite green; decision hooks verified to construct no describer.
-- [ ] `find-auto-allowed-command` agent fallback names `bypass-policy` and `add-allow-policy` with when to use each.
-- [ ] `Config.explain()` static line naming `add-allow-policy` (canonical form) and `command-policy:config`.
+- [x] `find-auto-allowed-command` agent fallback names `bypass-policy` and `add-allow-policy` with when to use each.
+- [x] `Config.explain()` static line naming `add-allow-policy` (canonical form) and `command-policy:config`.
 - [ ] Write `skills/config/SKILL.md` per the outline (single file, `user-invocable: true`, phrase-led description).
 - [ ] Skill drift test over all code registries.
 - [ ] `skills/migrate-config/SKILL.md`: "Where to write" points at `command-policy:config`.

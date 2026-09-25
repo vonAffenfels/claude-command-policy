@@ -308,6 +308,23 @@ def test_with_layer_presence_stays_silent_when_one_layer_was_found():
     assert "No command-policy.json config file found" not in config.explain()
 
 
+def test_explain_carries_the_add_allow_policy_advisory_even_for_an_empty_config():
+    """Static, never config-derived (improvement 20260925-120037) - mirrors
+    _DECOMPOSITION_ADVISORY's own unconditional rendering, and for the same
+    reason: a session with no config yet faces the most denials and needs
+    the durable-fix route named the most."""
+    explanation = Config.defaults().explain()
+
+    assert "add-allow-policy" in explanation
+    assert "command-policy:config" in explanation
+
+
+def test_explain_renders_the_add_allow_policy_advisory_before_the_decomposition_advisory():
+    explanation = Config.defaults().explain()
+
+    assert explanation.index("add-allow-policy") < explanation.index("RECOVERY TIP")
+
+
 def test_explain_carries_the_decomposition_advisory_even_for_an_empty_config():
     """improvement-20260919-230721: the advisory is static guidance, never
     config-derived - it must render for Config.defaults() so the user facing

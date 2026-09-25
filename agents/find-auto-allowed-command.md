@@ -76,9 +76,17 @@ dispatch rather than once per session the way the main session's own copy does.
      the caller should be able to run it as-is.
    - If decomposition (step 3) produced a valid ordered pair, state both commands in order, labeled explicitly as two
      separate steps for the caller to run one after the other - not joined by `&&`, a pipe, or a new substitution.
-   - If nothing in the effective config achieves the goal, say so plainly rather than forcing a weak suggestion. The
-     caller's own next step is `bypass-policy` (a deliberate, by-name escalation to a human) - mention it, but only once
-     you have genuinely concluded no auto-approved route exists, including having considered decomposition.
+   - If nothing in the effective config achieves the goal, say so plainly rather than forcing a weak suggestion - but
+     only once you have genuinely concluded no auto-approved route exists, including having considered decomposition.
+     Then name BOTH escalation routes and when each applies, rather than defaulting to one:
+     - **`bypass-policy <command>`** is for a ONE-OFF: this particular invocation, right now, escalated to the human as
+       a single decision. It does not change the config, so the same shape denies again next time.
+     - **`add-allow-policy --scope <user|project> --intent "<why>" "<command>"`** is for a command SHAPE that will
+       recur: it proposes a DURABLE `allowedCommands` entry, in its canonical grammar (the whole command as ONE quoted
+       argument - see `command-policy:config` for the schema an entry can express), which the human reviews as a diff
+       before it is written. Prefer this whenever the goal is "this kind of command should just work going forward", not
+       only "let me through this one time" - a caller that only ever reaches for `bypass-policy` never actually reduces
+       how often it needs to escalate.
 
 ## Tool Surface
 

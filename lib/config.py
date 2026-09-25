@@ -30,6 +30,7 @@ from path_config import PathConfig
 from path_resolution import PathResolutionContext
 from path_permission import decision_for as path_permission_decision_for
 from permission_decision import PermissionDecision
+from reason_renderer import ADD_ALLOW_POLICY_CANONICAL_FORM
 from redirect_path_validation_policy import RedirectPathValidationPolicy
 from sensitive_path import SensitivePath
 from sensitive_paths_policy import SensitivePathsPolicy
@@ -60,6 +61,17 @@ _DECOMPOSITION_ADVISORY = (
     "auto-allowed commands instead of escalating - run the value-producing command first, read its output, confirm "
     "it is the value you expected, then re-issue the original command with that value written in literally.\n"
     "See command-policy:find-auto-allowed-command for how to recognise when this applies."
+)
+
+# Static text, never config-derived, same rationale as _DECOMPOSITION_ADVISORY
+# above (improvement 20260925-120037): a session should learn about the
+# DURABLE escalation route unconditionally, not only after a denial routes it
+# to the find-auto-allowed-command agent - so it reaches SessionStart/
+# SubagentStart directly too, where a session can offer it proactively.
+_ADD_ALLOW_POLICY_ADVISORY = (
+    f"To propose a durable allow-listed command shape (rather than a one-off bypass-policy escalation), use "
+    f'add-allow-policy in its canonical form: {ADD_ALLOW_POLICY_CANONICAL_FORM}\n'
+    "See command-policy:config for the schema an allowedCommands entry can express."
 )
 
 
@@ -296,6 +308,7 @@ class Config:
         warnings_section = self._explain_warnings()
         if warnings_section:
             sections.append(warnings_section)
+        sections.append(_ADD_ALLOW_POLICY_ADVISORY)
         sections.append(_DECOMPOSITION_ADVISORY)
         return "\n\n".join(sections)
 
