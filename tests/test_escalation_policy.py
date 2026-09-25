@@ -7,6 +7,7 @@ from escalation_policy import add_allow_policy_transform, bypass_chain_hint, byp
 from permission_decision import PermissionDecision
 from reason import (
     AddAllowPolicyGrammarViolation,
+    AddAllowPolicyProposalInvalid,
     BlockedCommandInvoked,
     NotEscalatedByAnUnrelatedBypassWrapper,
     ProgramNotAllowListed,
@@ -323,3 +324,48 @@ def test_add_allow_policy_transform_denies_command_substitution_anywhere_in_it()
 
     assert result.decision == "deny"
     assert AddAllowPolicyGrammarViolation("shell_touched") in result.reason
+
+
+# -- refusing a well-formed grammar's malformed ENTRY, before asking --------
+#
+# improvement 20260925-120037: the grammar can be perfectly formed while the
+# proposed entry itself would never vouch for anything once loaded for real.
+
+
+def test_add_allow_policy_transform_denies_a_proposal_naming_an_unknown_filter_type():
+    entry = '{"program": "echo", "filters": [{"type": "madeUp", "action": "block"}]}'
+    statement = Statement.from_command(
+        f'add-allow-policy --scope user --intent "testing" \'{entry}\''
+    )
+
+    result = add_allow_policy_transform(statement)
+
+    assert result.decision == "deny"
+    [reason] = result.reason
+    assert isinstance(reason, AddAllowPolicyProposalInvalid)
+    assert "madeUp" in reason.problem
+
+
+def test_add_allow_policy_transform_denies_a_proposal_with_a_malformed_program_glob():
+    entry = '{"programGlob": {"marketplace": "m", "plugin": "p", "path": "/bin/foo"}}'
+    statement = Statement.from_command(
+        f'add-allow-policy --scope user --intent "testing" \'{entry}\''
+    )
+
+    result = add_allow_policy_transform(statement)
+
+    assert result.decision == "deny"
+    assert any(isinstance(reason, AddAllowPolicyProposalInvalid) for reason in result.reason)
+
+
+def test_add_allow_policy_transform_denies_invalid_json():
+    statement = Statement.from_command(
+        "add-allow-policy --scope user --intent \"testing\" '{not json'"
+    )
+
+    result = add_allow_policy_transform(statement)
+
+    assert result.decision == "deny"
+    [reason] = result.reason
+    assert isinstance(reason, AddAllowPolicyProposalInvalid)
+    assert "not valid JSON" in reason.problem

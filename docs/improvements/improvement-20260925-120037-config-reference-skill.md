@@ -144,6 +144,32 @@ only three").
   `structured_parser` 3 and `action` 1 deliberately left raising per the scope boundary above.
 - 808 tests green (807 prior + 1 net from `PathResolutionContext.for_project()`'s own 2 new tests minus adjustments).
 
+### add-allow-policy refuses an invalid proposal before asking (2026-09-25, implementation)
+
+- New `lib/proposal_validation.py` (`proposal_problems(entry_text, scope, path_resolution)`): parses the proposed entry
+  text, builds it through `AllowedCommand.from_entry` (the real static-problem path), and - for an external parser -
+  consults its own describe response via `described_problems.described_problems_for_entry` (the same shared module
+  `Config.described_problems` uses, extracted specifically so `config.py` and `escalation_policy.py` don't import each
+  other for it - `config.py` already imports `escalation_policy.py` at module level). `add_allow_write.py`'s own
+  `parse_entry` was deleted in favour of importing this module's copy (single source of truth).
+- `escalation_policy.add_allow_policy_transform` gained an optional `path_resolution` parameter (defaults to
+  `PathResolutionContext.for_project()`, mirroring every other caller-optional context parameter in this package) and
+  now calls `proposal_problems` once the strict grammar matches: any problem denies with one new
+  `AddAllowPolicyProposalInvalid(problem)` Reason per problem, rendered by `reason_renderer.py` like every other reason,
+  BEFORE the `ask` diff is ever built. `Config.decision_for` threads its own `self._path_resolution` through.
+- `add_allow_write.main` re-runs the same check before writing (defence in depth, the same posture `--intent` already
+  has) and refuses (exit 2, nothing written) with the problems printed to stderr.
+- **Deliberate, documented exception to "decision hooks never construct a describer":** `proposal_problems` imports
+  `Describer` lazily and constructs one whenever the add-allow-policy grammar is recognised - which happens INSIDE
+  `Config.decision_for`, i.e. reachable from `command-policy-analyze-bash-command`, the Bash PreToolUse hook. This
+  matches the Design Decisions section's own description ("the ask path in escalation_policy.add_allow_policy_transform
+  is reached from the Bash PreToolUse hook, so exactly that one proposal's entry is described there"): the "never runs a
+  describe subprocess" success criterion is about the GENERAL, high-frequency case (an ordinary command denying hundreds
+  of times a session) the 300ms measurement was about - not this rare, deliberate, human-initiated escalation.
+  `test_decision_hooks_never_import_the_describer` (test_consumer_entrypoints.py) still holds literally: neither
+  decision-hook BIN FILE imports `Describer` itself: the construction lives in `lib/escalation_policy.py`/
+  `lib/proposal_validation.py`, reached only for the one recognised grammar, never for an ordinary command.
+
 ### Entry validation (settled)
 
 - **Entry validation.** On 2026-09-25 the operator approved "validate via `Config.from_dict`". Measurement showed
@@ -581,9 +607,9 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 - [x] `Config.described_problems(describer)` + `with_additional_warnings`. Wire into
       `command-policy-render-session-start`, `command-policy-render-subagent-start`, `explain-policy`,
       `command-policy-lint-config-on-write`.
-- [ ] `add-allow-policy`: the ask path refuses a proposal with static or described problems via a new Reason / violation
+- [x] `add-allow-policy`: the ask path refuses a proposal with static or described problems via a new Reason / violation
       code rendered by `reason_renderer`. The write side re-checks.
-- [ ] Milestone: full suite green; decision hooks verified to construct no describer.
+- [x] Milestone: full suite green; decision hooks verified to construct no describer.
 - [ ] `find-auto-allowed-command` agent fallback names `bypass-policy` and `add-allow-policy` with when to use each.
 - [ ] `Config.explain()` static line naming `add-allow-policy` (canonical form) and `command-policy:config`.
 - [ ] Write `skills/config/SKILL.md` per the outline (single file, `user-invocable: true`, phrase-led description).

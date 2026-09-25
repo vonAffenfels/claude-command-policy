@@ -80,3 +80,23 @@ def test_add_allow_policy_refuses_to_write_without_an_intent(run_entrypoint, tmp
 
     assert result.returncode != 0
     assert not (home / ".claude" / "command-policy.json").exists()
+
+
+def test_add_allow_policy_refuses_to_write_an_entry_with_an_unknown_filter_type(run_entrypoint, tmp_path):
+    """The write side's own re-check (improvement 20260925-120037,
+    defence-in-depth alongside the ask path's refusal in
+    escalation_policy.add_allow_policy_transform) - nothing is written even
+    if this were somehow reached without the ask-side check having already
+    refused it."""
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    env = {"HOME": str(home)}
+    entry = json.dumps({"program": "echo", "filters": [{"type": "madeUp", "action": "block"}]})
+
+    result = run_entrypoint(
+        "add-allow-policy", args=[entry, "--scope", "user", "--intent", "why"], env=env
+    )
+
+    assert result.returncode != 0
+    assert "madeUp" in result.stderr
+    assert not (home / ".claude" / "command-policy.json").exists()

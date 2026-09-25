@@ -6,6 +6,7 @@ assert_primary_reason). This is the only place wording is pinned at all.
 
 from reason import (
     AddAllowPolicyGrammarViolation,
+    AddAllowPolicyProposalInvalid,
     ArgumentPathOutsideAllowedPaths,
     BlockedCommandInvoked,
     CommandSubstitutionPresent,
@@ -114,12 +115,20 @@ def test_renders_every_reason_kind_without_crashing():
         ArgumentPathOutsideAllowedPaths("cat", "/x"),
         FilterRejected("echo", "optionPresent"),
         AddAllowPolicyGrammarViolation("redirect_on_invocation"),
+        AddAllowPolicyProposalInvalid("unknown filter type 'madeUp'"),
     )
 
     text = render(every_kind)
 
     for reason in every_kind:
         assert repr(reason) not in text, f"{reason!r} fell through to the repr fallback"
+
+
+def test_renders_the_proposed_entrys_own_problem():
+    text = render((AddAllowPolicyProposalInvalid("unknown filter type 'madeUp'"),))
+
+    assert text.startswith("add-allow-policy's proposed entry is invalid: unknown filter type 'madeUp'")
+    assert text.endswith(f"({EQUIVALENCE_POINTER})")
 
 
 def test_renders_the_wrong_use_of_add_allow_policy_teaching_the_correct_form():

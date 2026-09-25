@@ -72,10 +72,13 @@ from __future__ import annotations
 
 import json
 
+from path_resolution import PathResolutionContext
 from permission_decision import PermissionDecision
+from proposal_validation import proposal_problems
 from reason import (
     NEAR_MISS_REASON_TYPES,
     AddAllowPolicyGrammarViolation,
+    AddAllowPolicyProposalInvalid,
     BlockedCommandInvoked,
     NotEscalatedByAnUnrelatedBypassWrapper,
     RedirectOutsideAllowedPaths,
@@ -162,11 +165,17 @@ def _mentions_program(statement, program):
     return any(_mentions_program(child, program) for child in statement.sub_statements())
 
 
-def add_allow_policy_transform(statement):
+def add_allow_policy_transform(statement, path_resolution=None):
     """None when `add-allow-policy` is not invoked anywhere on this line.
-    Otherwise `ask` for the one accepted grammar, or `deny` (with an
-    `AddAllowPolicyGrammarViolation` Reason) for any other shape - see this
-    module's docstring for the grammar and its quoting rationale.
+    Otherwise `ask` for the one accepted grammar with a well-formed entry,
+    `deny` (with an `AddAllowPolicyGrammarViolation` Reason) for any other
+    shape - see this module's docstring for the grammar and its quoting
+    rationale - or `deny` (with an `AddAllowPolicyProposalInvalid` Reason per
+    problem) when the grammar is right but the entry itself has a static or
+    described problem (improvement 20260925-120037): a human approving the
+    dialog should never be asked to bless an entry that would never vouch
+    for anything. `path_resolution` defaults to the project context, mirroring
+    every other caller-optional context parameter in this package.
     """
     if not _mentions_program(statement, ADD_ALLOW_POLICY_PROGRAM):
         return None
@@ -181,6 +190,11 @@ def add_allow_policy_transform(statement):
         return _malformed_add_allow_policy(violation)
 
     scope, intent, entry_text = parsed
+
+    problems = proposal_problems(entry_text, scope, path_resolution or PathResolutionContext.for_project())
+    if problems:
+        return PermissionDecision.deny(tuple(AddAllowPolicyProposalInvalid(problem) for problem in problems))
+
     diff = _entry_diff(scope, entry_text)
     reason = (
         f"PROPOSED command-policy config change ({scope} scope). Diff: {diff}. "

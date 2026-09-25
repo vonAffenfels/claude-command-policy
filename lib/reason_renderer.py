@@ -31,6 +31,7 @@ from __future__ import annotations
 
 from reason import (
     AddAllowPolicyGrammarViolation,
+    AddAllowPolicyProposalInvalid,
     ArgumentPathOutsideAllowedPaths,
     BlockedCommandInvoked,
     CommandSubstitutionPresent,
@@ -117,6 +118,7 @@ _CLAUSE_BUILDERS = {
         f"{ADD_ALLOW_POLICY_CANONICAL_FORM}. "
         f"{_ADD_ALLOW_POLICY_VIOLATION_EXPLANATIONS.get(r.violation, f'malformed invocation ({r.violation})')}"
     ),
+    AddAllowPolicyProposalInvalid: lambda r: f"add-allow-policy's proposed entry is invalid: {r.problem}",
 }
 
 

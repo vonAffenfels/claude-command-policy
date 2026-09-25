@@ -12,6 +12,13 @@ docstring), but it is independently re-checked here too, at the point the
 config file actually changes, as defence in depth rather than a
 replacement), and appends the entry. Never touches any other key.
 
+The ask path (`escalation_policy.add_allow_policy_transform`) already
+refuses a proposal whose entry has a static or described PROBLEM before ever
+asking (improvement 20260925-120037) - `proposal_validation.proposal_problems`
+is re-run here too, as the same defence-in-depth posture `--intent` already
+has: the ask-side check and the write-side check are two callers of the same
+function, not two independently-maintained copies of the rule.
+
 Ported from packages/shfmt-permissions/scripts/propose_allow.py, collapsing
 its two scope-specific commands into one `--scope user|project` flag and its
 config file into `command-policy.json`.
@@ -25,6 +32,9 @@ import os
 import sys
 from pathlib import Path
 
+from path_resolution import PathResolutionContext
+from proposal_validation import parse_entry, proposal_problems
+
 
 def config_path(scope):
     """The target config file for a proposal scope ('user' or 'project')."""
@@ -33,15 +43,6 @@ def config_path(scope):
         return Path(home) / ".claude" / "command-policy.json"
     project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
     return Path(project_dir) / ".claude" / "command-policy.json"
-
-
-def parse_entry(entry_text):
-    """A bare program name stays a string; a '{'-prefixed argument is parsed
-    as the JSON allowedCommands entry object it represents."""
-    stripped = entry_text.strip()
-    if stripped.startswith("{"):
-        return json.loads(stripped)
-    return stripped
 
 
 def apply_proposal(scope, entry_text):
@@ -76,6 +77,13 @@ def main(argv):
 
     if not args.intent.strip():
         print("error: --intent must not be blank.", file=sys.stderr)
+        return 2
+
+    problems = proposal_problems(args.entry, args.scope, PathResolutionContext.for_project())
+    if problems:
+        print("error: proposed entry is invalid - nothing was written:", file=sys.stderr)
+        for problem in problems:
+            print(f"  - {problem}", file=sys.stderr)
         return 2
 
     try:

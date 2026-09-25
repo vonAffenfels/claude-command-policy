@@ -208,3 +208,23 @@ class AddAllowPolicyGrammarViolation:
 
     violation: str
 
+
+@dataclass(frozen=True)
+class AddAllowPolicyProposalInvalid:
+    """add-allow-policy's proposed ENTRY (not its grammar - see
+    AddAllowPolicyGrammarViolation for that separate concern) has a
+    construction-time problem `AllowedCommand.from_entry` would find loading
+    it for real: an unrecognised filter/parser type, an uncompilable
+    pattern, a malformed `programGlob`, an `optionValue`/`nestedCommand`
+    filter naming a capability its parser (statically, or per its own
+    describe response) does not have, and so on - the SAME `problems()` a
+    merged config's own entries report through `Config.warnings()`.
+
+    Caught and reported BEFORE asking (improvement 20260925-120037): a human
+    approving the dialog should never be asked to bless an entry that would
+    itself never vouch for anything. One Reason per problem, following the
+    flat/heterogeneous reason-list convention every other Pass uses, rather
+    than bundling every problem into one Reason's own tuple field."""
+
+    problem: str
+
