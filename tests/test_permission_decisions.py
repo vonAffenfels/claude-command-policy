@@ -47,7 +47,7 @@ from pathlib import Path
 
 import pytest
 
-from config import Config, ConfigError
+from config import Config
 from reason import (
     AddAllowPolicyGrammarViolation,
     ArgumentPathOutsideAllowedPaths,
@@ -55,6 +55,7 @@ from reason import (
     CommandSubstitutionPresent,
     FilterRejected,
     NotEscalatedByAnUnrelatedBypassWrapper,
+    ParserCouldNotInterpretInvocation,
     ProgramNotAllowListed,
     RedirectOutsideAllowedPaths,
     SensitivePathReferenced,
@@ -530,45 +531,48 @@ def test_a_later_entry_can_vouch_for_what_an_earlier_entry_rejects():
     )
 
 
-def test_unknown_filter_action_is_rejected_at_config_load_time():
+def test_unknown_filter_action_never_vouches():
     """Flag List A1, layer 1. An action other than block/required must not load.
 
     Today all nine filter implementations end `return True` for an unrecognised
     action, so a typo ('blcok') silently turns a restriction into a no-op and
-    widens the allowlist. Rejecting at load time gives the config author the
-    error at the moment they can act on it.
+    widens the allowlist. Improvement 20260925-120037: rather than raising, the
+    filter becomes an InvalidFilter (always fails closed) and the entry never
+    vouches - the problem is reported through Config.warnings() instead.
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "echo hi",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "echo",
-                        "filters": [{"type": "optionPresent", "option": "--x", "action": "blcok"}],
-                    }
-                ]
-            },
-        )
+    result = assert_decision(
+        "echo hi",
+        {
+            "allowedCommands": [
+                {
+                    "program": "echo",
+                    "filters": [{"type": "optionPresent", "option": "--x", "action": "blcok"}],
+                }
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("echo", "optionPresent"))
 
 
-def test_unknown_filter_type_is_rejected_at_config_load_time():
+def test_unknown_filter_type_never_vouches():
     """Flag List A2, layer 1. `create_filter` returns None for an unknown type
     and the match loop `continue`s past it, so a typo'd type REMOVES the
     restriction rather than failing.
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "echo hi",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "echo",
-                        "filters": [{"type": "optionPresnt", "option": "--x", "action": "block"}],
-                    }
-                ]
-            },
-        )
+    result = assert_decision(
+        "echo hi",
+        {
+            "allowedCommands": [
+                {
+                    "program": "echo",
+                    "filters": [{"type": "optionPresnt", "option": "--x", "action": "block"}],
+                }
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("echo", "optionPresnt"))
 
 
 def test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time():
@@ -793,7 +797,7 @@ def test_option_value_filter_rejects_a_disallowed_value():
     )
 
 
-def test_option_value_filter_naming_an_option_no_parser_consumes_is_a_config_error():
+def test_option_value_filter_naming_an_option_no_parser_consumes_never_vouches():
     """Flag List A6, surfaced while authoring this batch.
 
     The SAME filter without the structured parser is silently inert today: the
@@ -802,24 +806,26 @@ def test_option_value_filter_naming_an_option_no_parser_consumes_is_a_config_err
     very invocation the author wrote the filter to stop. No typo is involved, so
     A1/A2's type/action validation does not catch it.
 
-    Rejecting at load time is the layer that can: whether an option consumes a
-    value is knowable from the entry's own parser config, with no command in
-    hand.
+    Whether an option consumes a value is knowable from the entry's own parser
+    config, with no command in hand - AllowedCommand.from_entry checks it at
+    construction and downgrades the filter to an always-failing InvalidFilter
+    rather than raising (improvement 20260925-120037).
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "git commit -m wip",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "git",
-                        "filters": [
-                            {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
-                        ],
-                    }
-                ]
-            },
-        )
+    result = assert_decision(
+        "git commit -m wip",
+        {
+            "allowedCommands": [
+                {
+                    "program": "git",
+                    "filters": [
+                        {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
+                    ],
+                }
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("git", "optionValue"))
 
 
 # -- double-quoted-argument blindness (improvement-20260918-205740) ---------
@@ -2227,24 +2233,26 @@ def test_a_nested_command_filter_needs_a_parser_that_publishes_sub_commands():
 
     Neither the default nor the structured parser can publish on the
     sub-command channel, so a `nestedCommand` filter beside one can never have
-    anything to check and would deny every invocation forever. Rejected at load
-    time for the same reason A6 is - the parser's own config says so, with no
-    command in hand.
+    anything to check and would deny every invocation forever. The parser's
+    own config says so with no command in hand, so AllowedCommand.from_entry
+    downgrades the filter to an always-failing InvalidFilter at construction
+    rather than raising (improvement 20260925-120037).
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "xargs rm ./build",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "xargs",
-                        "commandParser": {"type": "structured", "options": []},
-                        "filters": [{"type": "nestedCommand"}],
-                    }
-                ],
-                "blockedCommands": ["rm"],
-            },
-        )
+    result = assert_decision(
+        "xargs rm ./build",
+        {
+            "allowedCommands": [
+                {
+                    "program": "xargs",
+                    "commandParser": {"type": "structured", "options": []},
+                    "filters": [{"type": "nestedCommand"}],
+                }
+            ],
+            "blockedCommands": ["rm"],
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("xargs", "nestedCommand"))
 
 def test_a_named_value_filter_constrains_what_a_parser_published(cwd_pinned_inside_project):
     """`namedValue` is the only filter family that reads parser output, so it
@@ -2414,7 +2422,7 @@ def test_structured_parser_joined_form_contributes_the_value_not_the_whole_word(
         ("pathPositionals", [0]),
     ],
 )
-def test_a_retired_structured_parser_key_is_rejected_at_decision_time(retired_key, retired_value):
+def test_a_retired_structured_parser_key_never_vouches(retired_key, retired_value):
     """The four parallel keys (`options`, `optionsWithArguments`,
     `pathOptions`, `pathPositionals`) collapsed into one per-slot declaration
     schema. A config still carrying a retired key is the 'config no author
@@ -2423,16 +2431,22 @@ def test_a_retired_structured_parser_key_is_rejected_at_decision_time(retired_ke
     TOKENIZATION (an option's value becomes a stray positional, shifting
     every later index), and silently ignoring `pathOptions`/`pathPositionals`
     would leave an author believing they had declared something.
+
+    `StructuredParser.from_definition` itself still raises for this (see
+    test_structured_parser.py) - the parser factory AllowedCommand.from_entry
+    goes through catches it and downgrades to an InvalidParser instead, so no
+    ConfigError escapes decision_for (improvement 20260925-120037).
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "tool arg",
-            {
-                "allowedCommands": [
-                    {"program": "tool", "commandParser": {"type": "structured", retired_key: retired_value}}
-                ]
-            },
-        )
+    result = assert_decision(
+        "tool arg",
+        {
+            "allowedCommands": [
+                {"program": "tool", "commandParser": {"type": "structured", retired_key: retired_value}}
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, ParserCouldNotInterpretInvocation("tool"))
 
 
 def test_structured_parser_undeclared_bare_flag_still_allows(cwd_pinned_inside_project):
@@ -2488,25 +2502,26 @@ def test_structured_parser_paths_filter_heuristic_still_rejects_an_undeclared_in
 # propagation". An omission here would read as a decision nobody made.
 
 
-def test_option_value_filter_is_rejected_when_the_parser_declares_no_such_option():
+def test_option_value_filter_never_vouches_when_the_parser_declares_no_such_option():
     """1 of 4. The parser knows nothing about `-m`, so the filter names a
     subject that can never be populated.
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "git commit -m wip",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "git",
-                        "commandParser": {"type": "structured", "options": []},
-                        "filters": [
-                            {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
-                        ],
-                    }
-                ]
-            },
-        )
+    result = assert_decision(
+        "git commit -m wip",
+        {
+            "allowedCommands": [
+                {
+                    "program": "git",
+                    "commandParser": {"type": "structured", "options": []},
+                    "filters": [
+                        {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
+                    ],
+                }
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("git", "optionValue"))
 
 
 def test_option_value_filter_loads_when_the_parser_declares_the_option_consumes_a_value():
@@ -2532,7 +2547,7 @@ def test_option_value_filter_loads_when_the_parser_declares_the_option_consumes_
     )
 
 
-def test_option_value_filter_is_rejected_when_the_parser_declares_the_option_takes_no_value():
+def test_option_value_filter_never_vouches_when_the_parser_declares_the_option_takes_no_value():
     """3 of 4, and the case that makes the interface two questions rather than one.
 
     `-m` IS declared (as a bare string - a valueless flag), so "does the
@@ -2540,21 +2555,22 @@ def test_option_value_filter_is_rejected_when_the_parser_declares_the_option_tak
     there is still no value for an `optionValue` filter to inspect. Knowing
     the option exists is not enough; the filter needs the option to CONSUME.
     """
-    with pytest.raises(ConfigError):
-        decision_for(
-            "git commit -m wip",
-            {
-                "allowedCommands": [
-                    {
-                        "program": "git",
-                        "commandParser": {"type": "structured", "options": ["-m"]},
-                        "filters": [
-                            {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
-                        ],
-                    }
-                ]
-            },
-        )
+    result = assert_decision(
+        "git commit -m wip",
+        {
+            "allowedCommands": [
+                {
+                    "program": "git",
+                    "commandParser": {"type": "structured", "options": ["-m"]},
+                    "filters": [
+                        {"type": "optionValue", "option": "-m", "pattern": "^wip$", "action": "block"}
+                    ],
+                }
+            ]
+        },
+        "deny",
+    )
+    assert_reason_includes(result, FilterRejected("git", "optionValue"))
 
 
 def test_option_value_filter_loads_when_the_parser_declares_both_kinds_of_option():
@@ -3427,8 +3443,8 @@ MATCHING_BRANCH_COVERAGE = {
     "filter_rejects": ["test_allow_listed_program_whose_invocation_is_rejected_is_denied_with_a_hint"],
     "filters_and_ed_within_entry": ["test_all_filters_on_an_entry_must_pass_for_the_entry_to_vouch"],
     "entries_or_ed_across_list": ["test_a_later_entry_can_vouch_for_what_an_earlier_entry_rejects"],
-    "filter_action_unrecognised": ["test_unknown_filter_action_is_rejected_at_config_load_time"],
-    "filter_type_unrecognised": ["test_unknown_filter_type_is_rejected_at_config_load_time"],
+    "filter_action_unrecognised": ["test_unknown_filter_action_never_vouches"],
+    "filter_type_unrecognised": ["test_unknown_filter_type_never_vouches"],
     "filter_unevaluatable_at_match_time": ["test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time"],
     "filter_index_out_of_bounds": ["test_block_action_rejects_by_absence_when_the_index_is_out_of_bounds"],
     "block_filter_defeated_by_double_quoting": ["test_a_double_quoted_argument_cannot_evade_a_block_filter"],
@@ -3501,7 +3517,7 @@ MATCHING_BRANCH_COVERAGE = {
     "structured_parser_joined_form_value_not_whole_word": [
         "test_structured_parser_joined_form_contributes_the_value_not_the_whole_word"
     ],
-    "structured_parser_retired_key_rejected": ["test_a_retired_structured_parser_key_is_rejected_at_decision_time"],
+    "structured_parser_retired_key_rejected": ["test_a_retired_structured_parser_key_never_vouches"],
     "structured_parser_undeclared_bare_flag_allows": ["test_structured_parser_undeclared_bare_flag_still_allows"],
     "structured_parser_paths_filter_heuristic_survives": [
         "test_structured_parser_paths_filter_heuristic_still_rejects_an_undeclared_in_project_path"
@@ -3521,10 +3537,10 @@ MATCHING_BRANCH_COVERAGE = {
     "propagation_extracts_nothing": ["test_an_entry_whose_nested_command_filter_has_nothing_to_check_does_not_match"],
     "propagation_depth_exceeded": ["test_exceeding_the_propagation_depth_limit_is_denied"],
     "parser_declares_no_such_option": [
-        "test_option_value_filter_is_rejected_when_the_parser_declares_no_such_option"
+        "test_option_value_filter_never_vouches_when_the_parser_declares_no_such_option"
     ],
     "parser_declares_option_without_value": [
-        "test_option_value_filter_is_rejected_when_the_parser_declares_the_option_takes_no_value"
+        "test_option_value_filter_never_vouches_when_the_parser_declares_the_option_takes_no_value"
     ],
     "parser_declares_option_consuming_value": [
         "test_option_value_filter_loads_when_the_parser_declares_the_option_consumes_a_value",

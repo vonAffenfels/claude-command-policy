@@ -110,6 +110,14 @@ class StructuredParser:
         declaration = self._options.get(option)
         return declaration is not None and declaration.arguments > 0
 
+    def publishes_nested_commands(self):
+        """Like DefaultParser's own answer - a structured parser only ever
+        DECLARES options/positionals, never a sub-command channel, so this
+        is statically `False` for every structured parser regardless of its
+        declarations. See default_parser.py's own method for the fuller
+        rationale."""
+        return False
+
     def parse(self, arguments):
         options = []
         positionals = []

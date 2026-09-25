@@ -105,6 +105,45 @@ only three").
 
 ## Implementation Notes
 
+### Value-object refactor landed (2026-09-25, implementation)
+
+- `Filter.from_definition(definition, path_resolution=None)` now dispatches ALL ten filter types (including `paths` ->
+  `PathsFilter`, `nestedCommand` -> `NestedCommandFilter`, both taken over from `AllowedCommandPolicy._filter_passes`'s
+  old string dispatch) and never raises - every defect (unknown type, uncompilable pattern, unrecognised action) becomes
+  an `InvalidFilter(problems)`, generalising the old `UncompilableFilter`/`try_from_definition`.
+- New `lib/parser_factory.py`: `build_parser(definition, path_resolution)` moved out of
+  `AllowedCommandPolicy._build_parser`, returns `InvalidParser(problems)` for an unrecognised `type`, a retired
+  `StructuredParser` key, or an unresolvable `provided` script name - never raises either.
+- `AllowedCommand.from_entry(entry, path_resolution=None, source="config")` builds `built_filters`/`parser` once,
+  applies the cross-object capability checks (`optionValue` needs a value-consuming parser, `nestedCommand` needs a
+  sub-command-publishing parser - via new `consumes_value_for_option`/`publishes_nested_commands` duck-typed capability
+  methods on `DefaultParser`/`StructuredParser`) and downgrades the offending filter to an `InvalidFilter` when the
+  PARSER side is statically known (pure parsers only - an external parser's capability is deferred to the not-yet-built
+  describe protocol). `problems()` is the public surface; `filters`/`command_parser`/`program_glob`/`__eq__`/`__hash__`/
+  `explain()` are UNCHANGED, still reading the raw definitions - existing callers/tests needed no rewrite beyond an
+  added `path_resolution` argument. A malformed `programGlob` sets `has_valid_program_glob=False`;
+  `AllowedCommandPolicy. _entry_matches_program` checks it before building the fnmatch pattern, so the entry simply
+  never matches (never raises a `KeyError` on a missing field either).
+- `AllowedCommandPolicy` now consumes pre-built `entry.parser`/`entry.built_filters` (zipped against the raw
+  `entry. filters` for action/type inspection) instead of rebuilding a parser/filter per decision;
+  `_build_parser`/`_require_ parser_declares_option_value`/`_require_parser_can_publish_nested_commands`/the filter-type
+  string dispatch are all gone. `_parsed_result_for` dispatches pure-vs-external via `hasattr(parser, "parse")` rather
+  than an `isinstance` tuple, which uniformly covers `InvalidParser` (has a `.parse()` that returns `None`, so it reads
+  as pure and never reaches a subprocess) with no special case.
+- **Deliberate scope boundary, not full uniformity:** `Action.from_definition` and `StructuredParser.from_definition`
+  (retired keys) still RAISE `ConfigError` at their own low-level unit contract - `test_action.py`'s and three of
+  `test_structured_parser.py`'s cases are UNCHANGED. `Filter.from_definition` (for Action) and the new parser factory
+  (for StructuredParser) are what CATCH these raises and convert them to problems; nothing downstream of those two ever
+  sees the exception. This satisfies the success criterion ("no `ConfigError` escapes `decision_for`") without rewriting
+  tests whose subject didn't change behaviour. Circular-import note: `allowed_command.py` must import `filter`/
+  `parser_factory` LAZILY (inside the functions that need them, not at module level) - both transitively import `config`
+  for `ConfigError`, and `config.py` imports `AllowedCommand` at ITS module level, so an eager import here recreates the
+  `config -> allowed_command -> filter -> config` cycle the file's other lazy imports already exist to avoid.
+- Of the 21 `pytest.raises(ConfigError)` cases inventoried (spec 7→9 actual test IDs incl. 3 parametrized, policy 4,
+  allowed_command 4, filter 2, config 1 uncompilable-pattern case) re-adjudicated to "never vouches + problem reported";
+  `structured_parser` 3 and `action` 1 deliberately left raising per the scope boundary above.
+- 808 tests green (807 prior + 1 net from `PathResolutionContext.for_project()`'s own 2 new tests minus adjustments).
+
 ### Entry validation (settled)
 
 - **Entry validation.** On 2026-09-25 the operator approved "validate via `Config.from_dict`". Measurement showed
@@ -520,21 +559,21 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] Add a project constructor to `PathResolutionContext`. `Config.from_dict(cfg, source, path_resolution=None)` stores
+- [x] Update status to in-progress
+- [x] Add a project constructor to `PathResolutionContext`. `Config.from_dict(cfg, source, path_resolution=None)` stores
       the context. `config_loader` passes one context to all layers. `_policies`/`decision_for_path` reuse it.
-- [ ] `Filter.from_definition` covers all ten filter types (taking over `paths`/`nestedCommand` from `_filter_passes`)
+- [x] `Filter.from_definition` covers all ten filter types (taking over `paths`/`nestedCommand` from `_filter_passes`)
       and returns `InvalidFilter(problems)` for every defect, generalising `UncompilableFilter`.
-- [ ] Parser factory moved out of `AllowedCommandPolicy._build_parser`, returning an invalid-parser stand-in. Structured
+- [x] Parser factory moved out of `AllowedCommandPolicy._build_parser`, returning an invalid-parser stand-in. Structured
       retired keys and unknown provided names become problems.
-- [ ] `AllowedCommand.from_entry(entry, context, source)` builds filters and parser, carries `source`, and exposes
+- [x] `AllowedCommand.from_entry(entry, context, source)` builds filters and parser, carries `source`, and exposes
       static `problems()` (incl. `programGlob` and the pure-parser `optionValue`/`nestedCommand` checks).
       `__eq__`/`__hash__`/`explain` stay on the raw definitions.
-- [ ] `AllowedCommandPolicy` operates on built objects. Remove `_build_parser`, `_require_*`, the string dispatch.
-- [ ] `Config.from_dict` reports static problems as layered Warnings, replacing
+- [x] `AllowedCommandPolicy` operates on built objects. Remove `_build_parser`, `_require_*`, the string dispatch.
+- [x] `Config.from_dict` reports static problems as layered Warnings, replacing
       `_collect_allowed_command_filter_warnings`.
-- [ ] Re-adjudicate the 21 `pytest.raises(ConfigError)` tests to "never vouches + problem reported".
-- [ ] Milestone: full suite green with no decision-time `ConfigError` left for `allowedCommands` defects.
+- [x] Re-adjudicate the 21 `pytest.raises(ConfigError)` tests to "never vouches + problem reported".
+- [x] Milestone: full suite green with no decision-time `ConfigError` left for `allowedCommands` defects.
 - [ ] Describe protocol: describer edge object (stdin `{"describe": true}`, memo per instance, contract validation) next
       to `ExternalParserFactory`.
 - [ ] All 17 bundled parsers answer describe (`publishesNestedCommands`, named values, `optionsWithValues`). A test

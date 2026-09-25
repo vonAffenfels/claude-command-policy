@@ -1,22 +1,32 @@
 """Filter: a Matcher bound to an Action, replacing create_filter's dict-of-
-classes dispatch with a single named constructor.
+classes dispatch with a single named constructor. Also the single dispatch
+point for the two filter kinds that are not a Matcher+Action composition at
+all (`paths` -> PathsFilter, `nestedCommand` -> NestedCommandFilter) - moved
+here from AllowedCommandPolicy's own `_filter_passes` string dispatch, so
+every filter TYPE is resolved in one place regardless of shape.
 
 `Filter.matches(parsed)` is `action.applies_to(matcher.match(parsed))` -
 never a boolean composition, because the Matcher's three-state MatchOutcome
 (see match_outcome.py) has a TARGET_ABSENT case that must fail the filter
 regardless of action.
 
-An uncompilable regex pattern is rejected HERE, at construction, rather than
-swallowed at match time into a fail-open `matched = False` the way today's
-`except re.error` does. Reuses `config.ConfigError` - `Config.from_dict`
-deliberately never raises it (see config.py's docstring); filter/parser
-shape validation is this leaf's job.
+`from_definition` never raises: every defect (an unknown type, an
+uncompilable pattern, an unrecognised action) degrades to an `InvalidFilter`
+carrying human-readable `problems` - a generalisation of the old engine's
+UncompilableFilter, which handled only the pattern case. `InvalidFilter`
+always fails closed, so the entry it belongs to can never vouch through it;
+`AllowedCommand.problems()` is what surfaces the `problems` text to a config
+author (see allowed_command.py). Lower-level constructors this delegates to
+(`Action.from_definition`, `re.compile`) may still raise - this is the one
+place those defects are caught and converted, not left to propagate to
+`decision_for`.
 """
 
 from __future__ import annotations
 
 import re
 
+from action import Action
 from config import ConfigError
 from matcher import (
     ArgumentAtIndexMatcher,
@@ -28,7 +38,8 @@ from matcher import (
     PositionalArgAtIndexMatcher,
     PositionalArgRegexMatcher,
 )
-from action import Action
+from nested_command_filter import NestedCommandFilter
+from paths_filter import PathsFilter
 
 _PATTERN_MATCHER_BY_TYPE = {
     "parameterRegex": lambda d: ParameterRegexMatcher(pattern=d.get("pattern", "")),
@@ -50,44 +61,30 @@ class Filter:
         self._action = action
 
     @classmethod
-    def from_definition(cls, definition):
+    def from_definition(cls, definition, path_resolution=None):
         filter_type = definition.get("type", "")
+
+        if filter_type == "paths":
+            return PathsFilter.from_definition(definition, path_resolution)
+        if filter_type == "nestedCommand":
+            return NestedCommandFilter.from_definition(definition)
+
         build_matcher = _PATTERN_MATCHER_BY_TYPE.get(filter_type)
         if build_matcher is None:
-            raise ConfigError(f"unknown filter type {filter_type!r}")
+            return InvalidFilter((f"unknown filter type {filter_type!r}",))
 
         try:
             matcher = build_matcher(definition)
         except re.error as exc:
-            error = ConfigError(
-                f"{filter_type} filter pattern {definition.get('pattern', '')!r} does not compile: {exc}"
-            )
-            error.filter_type = filter_type
-            error.pattern = definition.get("pattern", "")
-            raise error from exc
+            pattern = definition.get("pattern", "")
+            return InvalidFilter((f"{filter_type} filter pattern {pattern!r} does not compile: {exc}",))
 
-        return cls(matcher, Action.from_definition(definition))
-
-    @classmethod
-    def try_from_definition(cls, definition):
-        """Like `from_definition`, but degrades an uncompilable regex
-        PATTERN into an always-failing stand-in instead of raising - the
-        inherited leaf 20260914-213502 obligation (an uncompilable filter
-        fails closed at match time rather than crashing config load).
-
-        Returns `(filter, uncompilable_facts)`: `uncompilable_facts` is None
-        on success, or `(filter_type, pattern)` when degraded - the caller
-        (never this class) decides what a Warning about it should say, since
-        which layer/program it came from is not this class's concern. Any
-        OTHER `ConfigError` (an unknown type or action) still raises; only a
-        pattern-compile failure degrades.
-        """
         try:
-            return cls.from_definition(definition), None
+            action = Action.from_definition(definition)
         except ConfigError as exc:
-            if hasattr(exc, "filter_type"):
-                return UncompilableFilter(), (exc.filter_type, exc.pattern)
-            raise
+            return InvalidFilter((str(exc),))
+
+        return cls(matcher, action)
 
     def matches(self, parsed):
         return self._action.applies_to(self._matcher.match(parsed))
@@ -99,10 +96,16 @@ class Filter:
         return self._matcher.derive_alternative(self._action)
 
 
-class UncompilableFilter:
-    """Stand-in for a filter whose pattern failed to compile - always fails
-    closed, so the entry can never vouch through it
-    (`test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time`)."""
+class InvalidFilter:
+    """Stand-in for any filter definition `from_definition` could not build
+    - an unknown type, an uncompilable pattern, or an unrecognised action.
+    Always fails closed, so the entry it belongs to can never vouch through
+    it (`test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time`).
+    `problems` is a tuple of human-readable strings, surfaced through
+    `AllowedCommand.problems()`."""
+
+    def __init__(self, problems):
+        self.problems = tuple(problems)
 
     def matches(self, parsed):
         return False

@@ -5,10 +5,7 @@ Filter.from_definition - no filter type dispatch lives outside this file's
 subject.
 """
 
-import pytest
-
-from config import ConfigError
-from filter import Filter
+from filter import Filter, InvalidFilter
 from parsed_result import ParsedOption, ParsedResult
 
 
@@ -46,17 +43,26 @@ def test_target_absent_fails_the_filter_under_block_action_not_the_naive_inversi
     assert filter_.matches(ParsedResult(options=[ParsedOption("--other")])) is False
 
 
-def test_an_uncompilable_pattern_is_rejected_at_construction():
-    with pytest.raises(ConfigError):
-        Filter.from_definition({"type": "parameterRegex", "pattern": "(unclosed", "action": "block"})
+def test_an_uncompilable_pattern_degrades_to_an_invalid_filter_instead_of_raising():
+    filter_ = Filter.from_definition({"type": "parameterRegex", "pattern": "(unclosed", "action": "block"})
+
+    assert isinstance(filter_, InvalidFilter)
+    assert filter_.matches(ParsedResult()) is False
 
 
-def test_the_construction_error_carries_the_offending_type_and_pattern():
-    with pytest.raises(ConfigError) as excinfo:
-        Filter.from_definition({"type": "parameterRegex", "pattern": "(unclosed", "action": "block"})
+def test_the_invalid_filters_problem_names_the_offending_type_and_pattern():
+    filter_ = Filter.from_definition({"type": "parameterRegex", "pattern": "(unclosed", "action": "block"})
 
-    assert excinfo.value.filter_type == "parameterRegex"
-    assert excinfo.value.pattern == "(unclosed"
+    [problem] = filter_.problems
+    assert "parameterRegex" in problem
+    assert "(unclosed" in problem
+
+
+def test_an_unknown_filter_type_degrades_to_an_invalid_filter_instead_of_raising():
+    filter_ = Filter.from_definition({"type": "madeUp", "action": "block"})
+
+    assert isinstance(filter_, InvalidFilter)
+    assert "madeUp" in filter_.problems[0]
 
 
 def test_explain_delegates_to_the_matcher_with_the_actions_own_kind():

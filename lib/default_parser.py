@@ -55,6 +55,17 @@ class DefaultParser:
         not a silently-inert filter."""
         return False
 
+    def publishes_nested_commands(self):
+        """The default parser has no sub-command channel at all - it never
+        populates `ParsedResult.nested_commands` (see parse() below), so a
+        `nestedCommand` filter beside it can never have anything to check.
+        Used by allowed_command.py's cross-object capability check: a
+        `nestedCommand` filter needs a parser that can publish sub-commands,
+        which is knowable statically for every PURE parser (this one and
+        StructuredParser) - see ProvidedParser/CommandParser, where the
+        answer is dynamic and left to the describe protocol instead."""
+        return False
+
     def parse(self, arguments):
         options = []
         positionals = []

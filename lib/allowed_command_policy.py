@@ -14,9 +14,9 @@ Vouching for one entry, ALL of which must hold:
     after this Pass shipped) - the invocation's command word matches the
     entry's `{cache_root}/{marketplace}/{plugin}/*/{path}` fnmatch pattern,
     mirroring shfmt-permissions' `_build_plugin_program_pattern`/
-    `_check_command_allowed`. `../`-escape and leading-`/` validation already
-    happened at `AllowedCommand.from_entry` construction time, so matching
-    here trusts the stored dict as-is;
+    `_check_command_allowed`. A `programGlob` with a construction-time
+    PROBLEM (see allowed_command.py) never matches any invocation - the same
+    "never matches, reports its problem" rule every entry defect gets;
   - `onlyTheseVariables` vouching: every variable this invocation references
     is declared by the entry (deny-by-default, not a narrowing);
   - `hasNoPathParameters` (default False) gates only the entry's own
@@ -35,7 +35,11 @@ Vouching for one entry, ALL of which must hold:
     (`argument_knowability.py`): a `block` filter can never prove absence
     next to unknowable content; a `required` index filter is defeated only
     for positions at-or-after the first word-count-changing argument; every
-    other `required` filter is proven against the knowable arguments only;
+    other `required` filter is proven against the knowable arguments only.
+    A filter the entry's own construction could not build at all (an
+    unrecognised type, an uncompilable pattern, or a capability its parser
+    lacks - see allowed_command.py) is an `InvalidFilter` and always fails,
+    the same as any other rejecting filter;
   - when `commandSubstitutionResponse == "via-allowed-commands"`: every
     CmdSubst/ProcSubst this invocation's own statement carries (arguments
     or redirects) must itself recursively decide `allow` through the same
@@ -55,19 +59,14 @@ set instead: one Reason per entry that matched the program but did not
 vouch, or a single `ProgramNotAllowListed` when no entry names the program
 at all.
 
-Parser/filter CONSTRUCTION happens here, not in Config - leaf 20260914-213502
-stores `AllowedCommand.filters`/`command_parser` opaquely by design (there
-is no earlier construction site). An uncompilable filter PATTERN degrades to
-an always-failing stand-in via `Filter.try_from_definition` (the inherited
-leaf 20260914-213502 obligation - the corresponding Config-level Warning is
-now surfaced eagerly at `Config.from_dict` time instead of here, see
-config.py's `_collect_allowed_command_filter_warnings`); every OTHER config
-defect (unknown parser type, a missing `commandParser.type`, an
-`optionValue`/`nestedCommand` filter naming a capability its parser cannot
-supply) raises `ConfigError` outright, matching the acceptance suite's own
-`pytest.raises(ConfigError)` cases - only the uncompilable-pattern case has a
-test expecting graceful degradation instead of a raise
-(`test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time`).
+Filter/parser CONSTRUCTION happens once, at `AllowedCommand.from_entry` time
+(improvement 20260925-120037) - this Pass only EVALUATES the already-built
+`entry.parser`/`entry.built_filters` against a command. No `ConfigError` is
+raised here or anywhere downstream of it any more: a config defect this
+package cannot make sense of becomes a construction-time PROBLEM
+(`AllowedCommand.problems()`, surfaced through `Config.warnings()`), and the
+defective entry simply never vouches - the same "fails closed, never raises"
+posture an uncompilable filter pattern already had.
 """
 
 from __future__ import annotations
@@ -77,16 +76,11 @@ import os
 
 from action import Action  # noqa: F401 - re-exported for parser-dispatch callers
 from argument_knowability import ArgumentKnowability, IndexScheme
-from command_parser import CommandParser
-from config import ConfigError
-from default_parser import DefaultParser
-from filter import Filter
 from nested_command_filter import NestedCommandFilter
 from pass_ import Pass
 from paths_filter import PathsFilter
 from permission_decision import PermissionDecision
 from policy import Policy
-from provided_parser import ProvidedParser
 from reason import (
     ArgumentPathOutsideAllowedPaths,
     DisallowedVariableReferenced,
@@ -97,9 +91,7 @@ from reason import (
     UnknowablePathArgument,
 )
 from statement import CmdSubst, Command, ProcSubst
-from structured_parser import StructuredParser
 
-_PURE_PARSER_TYPES = (DefaultParser, StructuredParser)
 _INDEX_MATCHER_TYPES = frozenset({"argumentAtIndex", "positionalArgAtIndex"})
 
 # Injected by the engine into a re-parse, never read from an invocation - see
@@ -170,11 +162,10 @@ class AllowedCommandPolicy(Policy):
         """None means the entry vouches; otherwise the single Reason
         explaining why THIS entry does not - never a bool, so the caller
         never has to re-derive which of several checks actually failed."""
-        parser = self._build_parser(entry)
         arguments = command.arguments()
         argument_texts = [argument.text for argument in arguments]
 
-        parsed = self._parsed_result_for(parser, argument_texts)
+        parsed = self._parsed_result_for(entry.parser, argument_texts)
         if parsed is None:
             return ParserCouldNotInterpretInvocation(entry.program_label)
 
@@ -188,11 +179,11 @@ class AllowedCommandPolicy(Policy):
             offending_path = self._first_path_outside_allowed_prefixes(parsed)
             if offending_path is not None:
                 return ArgumentPathOutsideAllowedPaths(entry.program_label, offending_path)
-            if self._an_unknowable_argument_occupies_a_path_operand(parser, knowability, argument_texts):
+            if self._an_unknowable_argument_occupies_a_path_operand(entry.parser, knowability, argument_texts):
                 return UnknowablePathArgument(entry.program_label)
 
-        for definition in entry.filters:
-            if not self._filter_passes(definition, parser, parsed, knowability):
+        for definition, built_filter in zip(entry.filters, entry.built_filters):
+            if not self._filter_passes(definition, built_filter, entry.parser, parsed, knowability):
                 return FilterRejected(entry.program_label, definition.get("type", ""))
 
         return None
@@ -310,28 +301,10 @@ class AllowedCommandPolicy(Policy):
                 return False
         return True
 
-    # -- parser/filter construction --------------------------------------
-
-    def _build_parser(self, entry):
-        definition = entry.command_parser
-        if definition is None:
-            return DefaultParser(self._path_resolution)
-
-        parser_type = definition.get("type")
-        if parser_type == "structured":
-            return StructuredParser.from_definition(definition, self._path_resolution)
-        if parser_type == "provided":
-            return ProvidedParser.from_definition(definition, self._path_resolution)
-        if parser_type == "command":
-            return CommandParser.from_definition(definition)
-
-        raise ConfigError(
-            f"commandParser for program {entry.program!r} has no recognised 'type' ({parser_type!r}); "
-            "there is no implicit default parser type"
-        )
+    # -- parsing / filter evaluation --------------------------------------
 
     def _parsed_result_for(self, parser, argument_texts):
-        if isinstance(parser, _PURE_PARSER_TYPES):
+        if hasattr(parser, "parse"):
             return parser.parse(argument_texts)
         return self._parsed_result_via_external(parser, argument_texts)
 
@@ -347,7 +320,7 @@ class AllowedCommandPolicy(Policy):
             return None
         return parser.interpret(raw_output)
 
-    def _filter_passes(self, definition, parser, parsed, knowability):
+    def _filter_passes(self, definition, built_filter, parser, parsed, knowability):
         """Consumes `knowability` per the improvement's asymmetric rule: a
         `block` filter can never prove absence next to unknowable content
         (any argument, dash-prefixed included); a `required` INDEX filter
@@ -357,83 +330,64 @@ class AllowedCommandPolicy(Policy):
         positional counting; every other `required` filter is proven against
         the KNOWABLE arguments only - a second, PURE re-parse - except for an
         external-parser-backed entry, which gets no re-parse attempt at all
-        (a second subprocess invocation) and simply fails closed."""
-        filter_type = definition.get("type")
+        (a second subprocess invocation) and simply fails closed.
 
-        if filter_type == "paths":
-            return PathsFilter.from_definition(definition, self._path_resolution).matches(parsed)
+        `built_filter` is already constructed (`AllowedCommand.from_entry`) -
+        a `paths`/`nestedCommand` filter is evaluated through its own,
+        already-resolved value object; every other kind (including an
+        `InvalidFilter` standing in for a defect the entry's own
+        construction could not build) is a `Filter{Matcher, Action}` reused
+        across both an ordinary and a knowable-only re-parse."""
+        if isinstance(built_filter, PathsFilter):
+            return built_filter.matches(parsed)
 
-        if filter_type == "nestedCommand":
-            self._require_parser_can_publish_nested_commands(parser, entry_context=definition)
+        if isinstance(built_filter, NestedCommandFilter):
             if knowability.defeats_absence_proof():
                 return False
-            return NestedCommandFilter.from_definition(definition).matches(
-                parsed, self._evaluate_nested_text, self._depth, self._default_max_depth
-            )
-
-        self._require_parser_declares_option_value(parser, definition)
+            return built_filter.matches(parsed, self._evaluate_nested_text, self._depth, self._default_max_depth)
 
         if definition.get("action", "block") == "block":
             if knowability.defeats_absence_proof():
                 return False
-            built, _uncompilable = Filter.try_from_definition(definition)
-            return built.matches(parsed)
+            return built_filter.matches(parsed)
 
-        return self._required_filter_passes(filter_type, definition, parser, parsed, knowability)
+        return self._required_filter_passes(definition, built_filter, parser, parsed, knowability)
 
-    def _required_filter_passes(self, filter_type, definition, parser, parsed, knowability):
+    def _required_filter_passes(self, definition, built_filter, parser, parsed, knowability):
+        filter_type = definition.get("type")
+
         if filter_type in _INDEX_MATCHER_TYPES:
             scheme = IndexScheme.COMBINED if filter_type == "argumentAtIndex" else IndexScheme.POSITIONAL
             shift_position = knowability.first_shifting_position(scheme)
             if shift_position is not None and definition.get("index", 0) >= shift_position:
                 return False
-            built, _uncompilable = Filter.try_from_definition(definition)
-            return built.matches(parsed)
+            return built_filter.matches(parsed)
 
         if not knowability.defeats_absence_proof():
-            built, _uncompilable = Filter.try_from_definition(definition)
-            return built.matches(parsed)
+            return built_filter.matches(parsed)
 
-        if not isinstance(parser, _PURE_PARSER_TYPES):
+        if not hasattr(parser, "parse"):
             return False  # external parser: no knowable-only re-parse attempted
 
         knowable_parsed = parser.parse(knowability.knowable_texts())
-        built, _uncompilable = Filter.try_from_definition(definition)
-        return built.matches(knowable_parsed)
-
-    def _require_parser_can_publish_nested_commands(self, parser, entry_context):
-        if isinstance(parser, _PURE_PARSER_TYPES):
-            raise ConfigError(
-                "a nestedCommand filter needs a parser that can publish sub-commands "
-                "(commandParser type 'command' or 'provided'); the default/structured "
-                "parser can never populate the nestedCommands channel"
-            )
-
-    def _require_parser_declares_option_value(self, parser, definition):
-        if definition.get("type") != "optionValue":
-            return
-        if not hasattr(parser, "consumes_value_for_option"):
-            return  # external parser: capability is dynamic, cannot validate statically
-        option = definition.get("option")
-        if not parser.consumes_value_for_option(option):
-            raise ConfigError(
-                f"optionValue filter names option {option!r}, which this entry's parser "
-                "never populates with a value"
-            )
+        return built_filter.matches(knowable_parsed)
 
 
 def _entry_matches_program(entry, command_word):
     """`command_word` is `None` for an unresolvable invocation (a variable-
     invoked program, `Command.command_word`'s own contract) - it can never
-    match ANY entry, `programGlob` included. A plain `program` entry gets
-    this for free (`None == "foo"` is just `False`); `fnmatch.fnmatch`
-    raises `TypeError` on a `None` name instead of returning False, so the
-    `programGlob` branch needs its own explicit guard."""
+    match ANY entry, `programGlob` included. A `programGlob` entry with a
+    construction-time PROBLEM (`has_valid_program_glob` False - a missing
+    field, a `..`/leading-`/` escape, or `program`+`programGlob` both set)
+    never matches any invocation either - the same "never matches, reports
+    its problem" rule every entry defect gets (see allowed_command.py)."""
     if command_word is None:
         return False
     if entry.program_glob is not None:
+        if not entry.has_valid_program_glob:
+            return False
         pattern = _program_glob_pattern(entry.program_glob)
-        return pattern is not None and fnmatch.fnmatch(command_word, pattern)
+        return fnmatch.fnmatch(command_word, pattern)
     return entry.program == command_word
 
 
@@ -441,10 +395,8 @@ def _program_glob_pattern(program_glob):
     """`{cache_root}/{marketplace}/{plugin}/*/{path}` - the version segment
     between `{plugin}` and `{path}` is wildcarded so the entry keeps working
     across a plugin upgrade. Mirrors shfmt-permissions'
-    `_build_plugin_program_pattern`; unlike that function this never returns
-    None for an incomplete/traversal-bearing config, because
-    `AllowedCommand.from_entry` already rejected that at construction time.
-    """
+    `_build_plugin_program_pattern`; only ever called for a
+    `has_valid_program_glob` entry, so every field is trusted present."""
     cache_root = os.environ.get("CLAUDE_CODE_PLUGIN_CACHE_DIR") or os.path.expanduser("~/.claude/plugins/cache")
     return os.path.join(cache_root, program_glob["marketplace"], program_glob["plugin"], "*", program_glob["path"])
 
@@ -469,5 +421,3 @@ def _all_commands(statement):
             continue
         commands.extend(_all_commands(child))
     return commands
-
-

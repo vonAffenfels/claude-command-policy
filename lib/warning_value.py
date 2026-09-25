@@ -60,20 +60,18 @@ class Warning:
         return cls(layer, "unparseable_config_file", message, path=path)
 
     @classmethod
-    def uncompilable_filter_pattern(cls, layer, program, filter_type, pattern):
-        message = (
-            f"{layer} config's '{program}' entry has a {filter_type} filter whose pattern "
-            f"{pattern!r} does not compile. This filter now always fails closed, so the "
-            "entry can never vouch through it."
-        )
-        return cls(
-            layer,
-            "uncompilable_filter_pattern",
-            message,
-            program=program,
-            filter_type=filter_type,
-            pattern=pattern,
-        )
+    def allowed_command_problem(cls, layer, program, problem):
+        """One static defect `AllowedCommand.from_entry` found while
+        building an allowedCommands entry - an unrecognised filter/parser
+        type, an uncompilable pattern, a retired StructuredParser key, an
+        unresolved `provided` script, a malformed `programGlob`, or an
+        `optionValue`/`nestedCommand` filter naming a capability its parser
+        statically lacks. The entry never vouches for any invocation because
+        of it; this is what makes that visible through `explain()`/
+        SessionStart/the lint hook instead of only failing closed silently.
+        """
+        message = f"{layer} config's '{program}' entry: {problem}"
+        return cls(layer, "allowed_command_problem", message, program=program, problem=problem)
 
     @classmethod
     def dead_decision_knob_removed(cls, layer, knob):

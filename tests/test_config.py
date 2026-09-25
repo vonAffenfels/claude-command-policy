@@ -144,12 +144,11 @@ def test_the_warning_for_an_invalid_knob_names_the_layer_it_came_from():
 
 
 def test_from_dict_warns_about_an_uncompilable_allowed_command_filter_pattern_without_raising():
-    """Leaf 20260915-010959's carried-forward finding: leaf 20260914-213652
-    caught this ConfigError and built the Warning, but only inside
-    AllowedCommandPolicy, which Config discards after every decision - the
-    warning was never reachable through Config.warnings() and had no test.
-    Constructing the config below must not raise; the warning must carry the
-    layer it came from.
+    """Leaf 20260915-010959's carried-forward finding, now generalised
+    (improvement 20260925-120037): every static defect `AllowedCommand.
+    from_entry` finds - an uncompilable pattern included - becomes a
+    `problem`, surfaced through `Config.warnings()` via the generic
+    `allowed_command_problem` kind rather than a construction-time raise.
     """
     config = Config.from_dict(
         {
@@ -164,11 +163,11 @@ def test_from_dict_warns_about_an_uncompilable_allowed_command_filter_pattern_wi
     )
 
     [warning] = config.warnings()
-    assert warning.kind == "uncompilable_filter_pattern"
+    assert warning.kind == "allowed_command_problem"
     assert warning.layer == "project"
     assert warning.program == "echo"
-    assert warning.filter_type == "parameterRegex"
-    assert warning.pattern == "[unclosed"
+    assert "parameterRegex" in warning.problem
+    assert "[unclosed" in warning.problem
 
 
 def test_merged_with_unions_allowed_commands():

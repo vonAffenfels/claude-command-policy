@@ -8,7 +8,6 @@ definitions opaquely.
 import pytest
 
 from allowed_command import AllowedCommand
-from config import ConfigError
 
 
 def test_a_bare_string_entry_normalises_to_a_program_with_no_filters():
@@ -141,10 +140,14 @@ def test_a_bare_string_entry_has_no_program_glob():
 
 
 def test_a_program_glob_entry_rejects_a_leading_slash_path():
-    with pytest.raises(ConfigError):
-        AllowedCommand.from_entry(
-            {"programGlob": {"marketplace": "m", "plugin": "p", "path": "/bin/foo"}}
-        )
+    """A malformed programGlob is a construction-time PROBLEM (improvement
+    20260925-120037), not a raise - the entry never matches any invocation
+    (has_valid_program_glob is False) and its problem is reported through
+    Config.warnings() instead."""
+    entry = AllowedCommand.from_entry({"programGlob": {"marketplace": "m", "plugin": "p", "path": "/bin/foo"}})
+
+    assert entry.has_valid_program_glob is False
+    assert any("must not start with '/'" in problem for problem in entry.problems())
 
 
 @pytest.mark.parametrize("field", ["marketplace", "plugin", "path"])
@@ -152,28 +155,34 @@ def test_a_program_glob_entry_rejects_dot_dot_in_any_field(field):
     program_glob = {"marketplace": "m", "plugin": "p", "path": "bin/foo"}
     program_glob[field] = "../escape"
 
-    with pytest.raises(ConfigError):
-        AllowedCommand.from_entry({"programGlob": program_glob})
+    entry = AllowedCommand.from_entry({"programGlob": program_glob})
+
+    assert entry.has_valid_program_glob is False
+    assert any("must not contain '..'" in problem for problem in entry.problems())
 
 
 @pytest.mark.parametrize("field", ["marketplace", "plugin", "path"])
 def test_a_program_glob_entry_rejects_a_missing_field(field):
     """Carried-forward finding from leaf 20260915-011123's review: an
-    incomplete programGlob dict must be rejected at CONSTRUCTION time, not
-    left to raise an uncaught KeyError at MATCH time inside
-    `_program_glob_pattern` - the old engine returned None (skip the entry)
-    for exactly this case; this engine fails loudly and early instead, which
-    is strictly better than either the old silent skip or a match-time
-    crash."""
+    incomplete programGlob dict must be rejected, not left to raise an
+    uncaught KeyError at MATCH time inside `_program_glob_pattern` - the old
+    engine returned None (skip the entry) for exactly this case. This engine
+    reports it as a construction-time problem and never matches any
+    invocation with it, which is strictly better than either the old silent
+    skip or a match-time crash."""
     program_glob = {"marketplace": "m", "plugin": "p", "path": "bin/foo"}
     del program_glob[field]
 
-    with pytest.raises(ConfigError):
-        AllowedCommand.from_entry({"programGlob": program_glob})
+    entry = AllowedCommand.from_entry({"programGlob": program_glob})
+
+    assert entry.has_valid_program_glob is False
+    assert any(f"missing required field {field!r}" in problem for problem in entry.problems())
 
 
 def test_program_glob_and_program_are_mutually_exclusive():
-    with pytest.raises(ConfigError):
-        AllowedCommand.from_entry(
-            {"program": "foo", "programGlob": {"marketplace": "m", "plugin": "p", "path": "bin/foo"}}
-        )
+    entry = AllowedCommand.from_entry(
+        {"program": "foo", "programGlob": {"marketplace": "m", "plugin": "p", "path": "bin/foo"}}
+    )
+
+    assert entry.has_valid_program_glob is False
+    assert any("both 'program' and 'programGlob'" in problem for problem in entry.problems())

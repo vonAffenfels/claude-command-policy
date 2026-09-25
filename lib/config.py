@@ -113,10 +113,13 @@ class Config:
     @classmethod
     def from_dict(cls, cfg, source="config", path_resolution=None):
         cfg = cfg or {}
+        resolved_path_resolution = path_resolution or PathResolutionContext.for_project()
 
         response, response_explicit, response_warnings = _resolve_command_substitution_response(cfg, source)
-        allowed_commands = tuple(AllowedCommand.from_entry(e) for e in cfg.get("allowedCommands") or ())
-        filter_warnings = _collect_allowed_command_filter_warnings(allowed_commands, source)
+        allowed_commands = tuple(
+            AllowedCommand.from_entry(e, resolved_path_resolution, source) for e in cfg.get("allowedCommands") or ()
+        )
+        problem_warnings = _collect_allowed_command_problem_warnings(allowed_commands, source)
 
         return cls(
             allowed_commands=allowed_commands,
@@ -127,9 +130,9 @@ class Config:
             path_config=PathConfig.from_entries(cfg.get("allowedPaths")),
             command_substitution_response=response,
             command_substitution_response_explicit=response_explicit,
-            warnings=response_warnings + filter_warnings,
+            warnings=response_warnings + problem_warnings,
             source=source,
-            path_resolution=path_resolution,
+            path_resolution=resolved_path_resolution,
         )
 
     # -- properties -------------------------------------------------------
@@ -396,41 +399,24 @@ def _parse_and_normalize(command):
     return statement.with_heredoc_normalized_to_lit()
 
 
-def _collect_allowed_command_filter_warnings(allowed_commands, source):
-    """Attempt to compile every allowedCommands entry's filters at config-
-    construction time, purely so an uncompilable PATTERN produces a Warning
-    reachable through `Config.warnings()` - previously this was only
-    discovered (and only degraded, never surfaced) lazily, inside
-    AllowedCommandPolicy, at decision time for whichever program happened to
-    be invoked (leaf 20260915-010959's carried-forward finding: that warning
-    was constructed but unreachable, and had no test).
-
-    Deliberately ignores every OTHER `ConfigError` (an unknown filter type or
-    action, say): those are policed properly, and unconditionally, by
-    `decision_for` itself once a command actually reaches that entry's
-    program - this is a best-effort static scan whose only job is to surface
-    the ONE case that degrades instead of raising, independent of whether
-    any command ever invokes the entry's program.
+def _collect_allowed_command_problem_warnings(allowed_commands, source):
+    """Every static PROBLEM each entry's own construction already found
+    (`AllowedCommand.problems()` - an unrecognised filter/parser type, an
+    uncompilable pattern, a retired StructuredParser key, an unresolved
+    `provided` script, a malformed `programGlob`, or an
+    `optionValue`/`nestedCommand` filter naming a capability its parser
+    statically lacks), turned into layered `Warning`s so a config author
+    sees them through `Config.warnings()`/`explain()`/SessionStart/the lint
+    hook - replaces the old `_collect_allowed_command_filter_warnings`,
+    which only re-derived the single uncompilable-pattern case by re-running
+    `Filter.try_from_definition` here; every other defect surfaced only
+    lazily, at decision time, for whichever program happened to be invoked.
     """
-    from filter import Filter  # lazy: filter.py imports ConfigError from this module
-
-    warnings = []
-    for entry in allowed_commands:
-        for definition in entry.filters:
-            if definition.get("type") in ("paths", "nestedCommand"):
-                continue
-            try:
-                _, uncompilable = Filter.try_from_definition(definition)
-            except ConfigError:
-                continue
-            if uncompilable is not None:
-                filter_type, pattern = uncompilable
-                warnings.append(
-                    Warning.uncompilable_filter_pattern(
-                        layer=source, program=entry.program, filter_type=filter_type, pattern=pattern
-                    )
-                )
-    return tuple(warnings)
+    return tuple(
+        Warning.allowed_command_problem(layer=source, program=entry.program_label, problem=problem)
+        for entry in allowed_commands
+        for problem in entry.problems()
+    )
 
 
 def _resolve_command_substitution_response(cfg, source):

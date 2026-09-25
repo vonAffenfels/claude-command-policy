@@ -6,23 +6,22 @@ filter's recursion, independent of the black-box spec suite
 
 from pathlib import Path
 
-import pytest
-
 from allowed_command import AllowedCommand
 from allowed_command_policy import AllowedCommandPolicy
-from config import Config, ConfigError
+from config import Config
 from pass_ import Pass
 from path_resolution import PathResolutionContext
-from reason import ProgramNotAllowListed
+from reason import ParserCouldNotInterpretInvocation, ProgramNotAllowListed
 from statement import Statement
 
 FIXTURES = Path(__file__).parent / "fixtures" / "fake_parsers"
 
 
 def _policy(allowed_commands, command, path_resolution=None, allowed_prefixes=(), recurse=False):
+    resolution = path_resolution or PathResolutionContext(cwd="/project")
     policy = AllowedCommandPolicy(
-        [AllowedCommand.from_entry(e) for e in allowed_commands],
-        path_resolution or PathResolutionContext(cwd="/project"),
+        [AllowedCommand.from_entry(e, resolution) for e in allowed_commands],
+        resolution,
         allowed_prefixes,
         recurse_via_allowed_commands=recurse,
         evaluate_nested_text=lambda text, depth: (_ for _ in ()).throw(
@@ -138,24 +137,29 @@ def test_has_no_path_parameters_disables_only_the_argument_path_check():
     assert policy.matches() is False
 
 
-# -- parser dispatch / config errors --------------------------------------
+# -- parser dispatch / construction-time problems -------------------------
 
 
-def test_a_commandparser_with_no_type_key_is_a_config_error():
+def test_a_commandparser_with_no_type_key_never_vouches():
+    """A commandParser missing its 'type' key is a construction-time
+    PROBLEM (AllowedCommand.problems()), not a raise - the entry becomes an
+    InvalidParser stand-in that never interprets any invocation."""
     policy = _policy([{"program": "cat", "commandParser": {"name": "cat"}}], "cat x")
 
-    with pytest.raises(ConfigError):
-        policy.matches()
+    assert policy.matches() is True
+    assert ParserCouldNotInterpretInvocation("cat") in policy.decision().reason
 
 
-def test_a_commandparser_with_an_unrecognised_type_is_a_config_error():
+def test_a_commandparser_with_an_unrecognised_type_never_vouches():
     policy = _policy([{"program": "cat", "commandParser": {"type": "made-up"}}], "cat x")
 
-    with pytest.raises(ConfigError):
-        policy.matches()
+    assert policy.matches() is True
+    assert ParserCouldNotInterpretInvocation("cat") in policy.decision().reason
 
 
-def test_optionvalue_filter_naming_an_option_the_default_parser_never_populates_is_a_config_error():
+def test_optionvalue_filter_naming_an_option_the_default_parser_never_populates_never_vouches():
+    from reason import FilterRejected
+
     policy = _policy(
         [
             {
@@ -166,8 +170,8 @@ def test_optionvalue_filter_naming_an_option_the_default_parser_never_populates_
         "git commit -m wip",
     )
 
-    with pytest.raises(ConfigError):
-        policy.matches()
+    assert policy.matches() is True
+    assert FilterRejected("git", "optionValue") in policy.decision().reason
 
 
 # -- programGlob matching (leaf 20260914-213652's cross-leaf hand-back,
@@ -438,10 +442,12 @@ def test_via_allowed_commands_recursion_is_depth_guarded():
 
 
 def test_nested_command_filter_needs_a_parser_that_can_publish_sub_commands():
+    from reason import FilterRejected
+
     policy = _policy(
         [{"program": "xargs", "filters": [{"type": "nestedCommand"}]}],
         "xargs rm ./build",
     )
 
-    with pytest.raises(ConfigError):
-        policy.matches()
+    assert policy.matches() is True
+    assert FilterRejected("xargs", "nestedCommand") in policy.decision().reason
