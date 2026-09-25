@@ -65,5 +65,5 @@ never modified or deleted, in either mode - this migration is purely additive.
 
 ## Where to write
 
-Same convention as `shfmt-permissions:config`: default to the user config unless the user explicitly asks for a
+Same convention as `command-policy:config`: default to the user config unless the user explicitly asks for a
 project-scoped migration.

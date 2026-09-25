@@ -612,9 +612,9 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 - [x] Milestone: full suite green; decision hooks verified to construct no describer.
 - [x] `find-auto-allowed-command` agent fallback names `bypass-policy` and `add-allow-policy` with when to use each.
 - [x] `Config.explain()` static line naming `add-allow-policy` (canonical form) and `command-policy:config`.
-- [ ] Write `skills/config/SKILL.md` per the outline (single file, `user-invocable: true`, phrase-led description).
-- [ ] Skill drift test over all code registries.
-- [ ] `skills/migrate-config/SKILL.md`: "Where to write" points at `command-policy:config`.
+- [x] Write `skills/config/SKILL.md` per the outline (single file, `user-invocable: true`, phrase-led description).
+- [x] Skill drift test over all code registries.
+- [x] `skills/migrate-config/SKILL.md`: "Where to write" points at `command-policy:config`.
 - [ ] Update the knowledgebase (Load-Time Rejection, opaque storage superseded, describe protocol, advertising,
       glossary). Note the absorbed parts in `improvement-20260920-152953`'s file.
 - [ ] Bump the version in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
