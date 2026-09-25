@@ -615,7 +615,7 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
 - [x] Write `skills/config/SKILL.md` per the outline (single file, `user-invocable: true`, phrase-led description).
 - [x] Skill drift test over all code registries.
 - [x] `skills/migrate-config/SKILL.md`: "Where to write" points at `command-policy:config`.
-- [ ] Update the knowledgebase (Load-Time Rejection, opaque storage superseded, describe protocol, advertising,
+- [x] Update the knowledgebase (Load-Time Rejection, opaque storage superseded, describe protocol, advertising,
       glossary). Note the absorbed parts in `improvement-20260920-152953`'s file.
 - [ ] Bump the version in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`.
 - [ ] Run the full suite: `cd tests && nix-shell --run pytest`.

@@ -184,6 +184,15 @@ exists, and no Policy or `Pass` value references any of the three:
   improvement file's Design Decisions for the reasoning and how to override it in one place if a reviewer intended the
   stricter reading.
 
+  **Once the grammar matches, the proposed ENTRY itself is validated too (improvement 20260925-120037), before ever
+  building the `ask` diff.** `lib/proposal_validation.py`'s `proposal_problems` builds the entry through
+  `AllowedCommand. from_entry` for static problems (an unrecognised filter/parser type, a malformed `programGlob`, ...)
+  and — for a `provided`/`command` parser — consults its own describe response too (see the Describe Protocol section).
+  Any problem denies with one `AddAllowPolicyProposalInvalid(problem)` Reason per problem — a SEPARATE Reason from the
+  eight grammar violation codes above, since this is a defect in the entry's CONTENT, not its SHAPE — so a human
+  approving the dialog is never asked to bless an entry that would never vouch for anything once written.
+  `lib/add_allow_write.py`'s write side re-runs the same check before writing, as defence in depth.
+
   **Quoted-argument display, fixed 2026-09-18 (reopened):** `_classify_add_allow_invocation` reads every token via
   `Argument.text` — see [Statement: What Every Policy Actually Reads](#statement-what-every-policy-actually-reads) below
   for what that accessor now does. Before this fix (and before improvement-20260918-205740's later merge into `.text`
@@ -416,12 +425,21 @@ filter whose subject the parser cannot populate is not a weak restriction, it is
 ## Filter and Parser: The Value-Object Split
 
 A `Filter` (`lib/filter.py`) is a `Matcher` bound to an `Action` (`matcher.py`/`action.py`), constructed only via
-`Filter.from_definition(definition)`. The split follows the one piece of duplication that mattered: today's nine filter
-classes each own both "what to extract and compare" and "what to do with the result" (`block` inverts, `required` passes
-through), and the second half is identical across eight of them. `Matcher` owns the first half — it has its own family
-of concrete classes (regex-against-all-arguments, regex-at-an-index, a named value, an option's value, an option's
-presence, ...) — `Action` owns only the inversion, in exactly one place. `PathsFilter` (`paths_filter.py`) stays
-entirely outside this composition: its "exactly"-match-over-a-list semantics has no block/required concept to share.
+`Filter.from_definition(definition, path_resolution=None)`. The split follows the one piece of duplication that
+mattered: today's nine filter classes each own both "what to extract and compare" and "what to do with the result"
+(`block` inverts, `required` passes through), and the second half is identical across eight of them. `Matcher` owns the
+first half — it has its own family of concrete classes (regex-against-all-arguments, regex-at-an-index, a named value,
+an option's value, an option's presence, ...) — `Action` owns only the inversion, in exactly one place. `PathsFilter`
+(`paths_filter.py`) stays entirely outside the Matcher/Action composition (its "exactly"-match-over-a-list semantics has
+no block/required concept to share) but IS one of `Filter.from_definition`'s own dispatch targets, alongside
+`NestedCommandFilter` — both `paths`/`nestedCommand` handling moved here (improvement 20260925-120037) from
+`AllowedCommandPolicy`'s own former string dispatch, so every filter TYPE resolves in one place regardless of shape.
+`from_definition` never raises: every defect (unknown type, uncompilable pattern, unrecognised action) degrades to an
+`InvalidFilter`, which always fails to match — see
+[Load-Time Rejection Superseded by Construction-Time Problems](#load-time-rejection-superseded-by-construction-time-problems)
+above for the full construction-time design this section's own `Filter`/`Matcher`/`Action` split still holds underneath.
+**Construction happens ONCE, in `AllowedCommand.from_entry`, not per-decision inside `AllowedCommandPolicy` any more** —
+`AllowedCommandPolicy` only evaluates the already-built objects it is handed.
 
 **A Matcher's result is three-state, not boolean** (`MatchOutcome` in `match_outcome.py`): `MATCHED` / `NOT_MATCHED` /
 `TARGET_ABSENT`. A Matcher whose target does not exist at all — an out-of-bounds index, a missing named value, a missing
@@ -612,43 +630,128 @@ rather than an inconsistency:
   literally on the line IS still caught, because `sensitivePaths` scans every literal regardless of which program
   receives it. Only what a command _references_ rather than _contains_ is out of reach.
 
-## Load-Time Rejection
+## Load-Time Rejection Superseded by Construction-Time Problems
 
-`Config.from_dict` raises `ConfigError` for a config no author could have meant, rather than loading it and letting the
-mistake express itself as silent permissiveness. This is the load-time half of a deliberate two-layer defense: the
-engine also fails closed at match time for what construction-time validation cannot catch.
+**This section describes the CURRENT design (improvement 20260925-120037), which replaces the load-time-raise model this
+article originally shipped with.** Nothing in `Config`'s public contract raises `ConfigError` for an `allowedCommands`
+defect any more, at load time OR at decision time — the class stays exported (other callers may still raise it for other
+reasons), but the rejection mechanism it names is gone. Read this section, not the git history, for what actually
+happens today.
 
-The rule behind which configs qualify: **every one of these mistakes would otherwise widen the allowlist silently.** An
-unrecognised filter `type`, an uncompilable regex `pattern`, and the `optionValue` case above (inspecting a value the
-entry's parser never produces) all belong to this rule. In each, the config author believes they added a restriction and
-received none. **The old engine's `fallback` knob is not one of these any more** — `deny|ask|legacy` is gone from the
-parser schema entirely, so there is nothing left to misconfigure leniently; every external-parser failure collapses to
-the same deny+hint outcome unconditionally (see the value-object section above).
+**The rule behind which configs qualify is unchanged**: every defect below would otherwise widen the allowlist silently,
+or — worse, under the old model — crash the hook outright and fail the surrounding tool call OPEN (no verdict at all).
+What changed is the OUTCOME: every one of these is now a construction-time **problem**, not a raised exception, and a
+problem entry does not vouch for anything rather than blowing up the process that would have decided it.
 
-**Fully wired, `Config` construction site.** `Filter.from_definition` (`lib/filter.py`) raises `ConfigError` — with
-`.filter_type`/`.pattern` attributes attached — for an unrecognised filter `type` or a `pattern` that fails to compile,
-and `Action.from_definition` (`action.py`) treats any `action` value other than exactly `"required"` as `"block"` rather
-than the old engine's `return True` catch-all, so an unrecognised action fails closed by construction rather than
-needing a separate rejection rule. `Config` still stores `AllowedCommand.filters`/ `command_parser` opaquely (leaf
-`20260914-213153`'s design); `AllowedCommandPolicy` (`lib/allowed_command_policy.py`) is where `Filter`/`Parser` objects
-actually get constructed, per entry, at decision time. An out-of-range `commandSubstitutionResponse` still falls back to
-the default and produces a structured `Warning` naming the layer it came from (`defaults` / `user` / `project`) — see
-`lib/warning_value.py`. **An uncompilable filter `pattern` degrades the same way, but is now caught EAGERLY at
-`Config.from_dict` time** (`_collect_allowed_command_filter_warnings`), independent of whether any command ever invokes
-that entry's program — the corresponding `AllowedCommandPolicy`-level catch exists only to fail the filter CLOSED at
-match time; the `Warning` itself is `Config.warnings()`'s to surface. Every other filter/parser defect (unknown type,
-unknown action, a missing `commandParser.type`, an `optionValue`/`nestedCommand` filter naming a capability its parser
-cannot supply) still raises `ConfigError` from `decision_for`, not from `from_dict` — it is policed against the
-actually-invoked program's actually-matching entries, not eagerly against the whole config.
+**`AllowedCommand.from_entry(entry, path_resolution, source)`** (`lib/allowed_command.py`) builds this entry's
+`Filter`/parser value objects ONCE, at config-load time, instead of `AllowedCommandPolicy` rebuilding — and potentially
+raising from — them on every decision. `Filter.from_definition` (`lib/filter.py`) now covers all ten filter types
+(including `paths`/`nestedCommand`, taken over from `AllowedCommandPolicy`'s own former string dispatch) and never
+raises: an unrecognised `type`, an uncompilable `pattern`, or an unrecognised `action` (`Action. from_definition`, still
+its own raising contract, caught by `Filter.from_definition`) all degrade to an `InvalidFilter`, which always fails to
+match. `lib/parser_factory.py`'s `build_parser` is the parser-side counterpart: an unrecognised `commandParser.type`, a
+retired `StructuredParser` key, or an unresolvable `provided` script name all degrade to an `InvalidParser`, which
+always fails to interpret an invocation. `AllowedCommand` ALSO applies the cross-object checks neither a `Filter` nor
+the parser factory can judge alone — an `optionValue` filter naming an option a STATICALLY-known-pure parser
+(`DefaultParser`/`StructuredParser`) never populates a value for, or a `nestedCommand` filter beside one of those same
+pure parsers (which can never publish sub-commands) — downgrading the offending filter to an `InvalidFilter` too.
 
-## Two Consumers: migrate-config (skill) and find-auto-allowed-command (agent)
+**`AllowedCommand.problems()`** is the public surface for all of this: a tuple of human-readable strings, empty for a
+well-formed entry. `Config.from_dict` turns every entry's `problems()` into a layered `Warning`
+(`Warning.allowed_command_problem`), so they flow through the ordinary `Config.warnings()` channel — `explain()`,
+SessionStart, SubagentStart, the PostToolUse lint hook, `add-allow-policy`'s refusal (below) — exactly like any other
+Warning, rather than only surfacing (or crashing) when a command happens to invoke that entry's program.
 
-Improvement `20260915-011123` built the first version of both consumers the trunk's re-plan identified but no earlier
-leaf owned; improvement `20260919-081655` later converted `find-auto-allowed-command` from a skill into a zero-context
-agent (see its own section below for why). Both consumers sit on `Config.explain()`'s rendered output as their input
-rather than reading raw config or re-implementing any decision logic — `migrate-config` via `bin/explain-policy`-shaped
-reasoning about the OLD schema, `find-auto-allowed-command` via the same `explain()` text already injected into its
-context at dispatch, never by shelling out to `explain-policy` itself.
+**`AllowedCommandPolicy`** (`lib/allowed_command_policy.py`) now only EVALUATES the pre-built `entry.parser`/
+`entry.built_filters` against a command — it constructs nothing and raises nothing. A `programGlob` entry with a static
+problem (a missing field, a `..`/leading-`/` escape, `program` and `programGlob` both set) is marked
+`has_valid_program_glob = False` and is checked BEFORE building its fnmatch pattern, so it simply never matches any
+invocation rather than crashing on a missing dict key. `_parsed_result_for`'s pure-vs-external dispatch is
+`hasattr(parser, "parse")` rather than an `isinstance` check against a fixed tuple — this uniformly covers
+`InvalidParser` too (it has a `.parse()` that returns `None`, so a broken parser reads as "pure" and never reaches a
+subprocess).
+
+**An out-of-range `commandSubstitutionResponse`** still falls back to the default and produces a structured `Warning`
+naming the layer it came from (`defaults` / `user` / `project`) — unaffected by any of the above; see
+`lib/warning_value.py`.
+
+**The DESCRIBED half — a problem only an external parser's own `{"describe": true}` response can answer — is a separate,
+later-computed set**, covered in its own section below (Describe Protocol), because it needs a subprocess and therefore
+must never run on the decision hot path.
+
+## Describe Protocol
+
+A STATIC problem (above) can judge a `DefaultParser`/`StructuredParser` entry's `optionValue`/`nestedCommand` filters
+against the parser's own capabilities, because those two parser types' capabilities are knowable from their config
+alone, with no invocation in hand. A `provided`/`command` (EXTERNAL) parser has no such config to read — its
+capabilities live in the SCRIPT, which the engine can only learn by asking it.
+
+**The describe protocol is that ask**: the same script that answers `{"arguments": [...]}` on stdin (the ordinary parse
+channel — see [A Filter Sees Only What the Parser Produced](#a-filter-sees-only-what-the-parser-produced)) must ALSO
+answer `{"describe": true}` with
+`{"publishesNestedCommands": bool, "namedValues": [string, ...], "optionsWithValues": [string, ...]}`. All 17 bundled
+parser scripts (`parsers/*.py`) implement it; `gawk.py` delegates to `awk.py`'s `describe()` the same way it delegates
+parsing. **A script that answers incorrectly — non-zero exit, timeout, malformed JSON, or a response missing/mis-shaping
+one of the three required keys — is itself a reported problem**, never silently "capability unknown";
+`lib/parser_description.py`'s `ParserDescription.from_raw` is what judges the shape.
+
+**`lib/describer.py`'s `Describer`** is the edge-level collaborator that actually asks — the describe-channel
+counterpart to `ExternalParserFactory`'s `{"arguments": [...]}` channel, same `subprocess.run`-with-JSON-on-stdin shape.
+It memoises per script path WITHIN ITS OWN INSTANCE ONLY, never at module or process-wide scope: the operator's own
+copy-on-write concern (a process-wide cache would be a mutable object shared between `Config`'s copy-on-write copies,
+since `Config._replace` hands every field to a new instance on every `with_*`/`merged_with`) rules out storing it, or
+its cache, on any value object. A `Describer` is therefore constructed FRESH, as a local variable, by each entrypoint
+that needs one, and dropped when that entrypoint exits.
+
+**WHEN the describe subprocess runs is the whole design constraint.** Measured: one bundled-parser subprocess start
+costs roughly 30ms, so describing the operator's own ~10 `provided`/`command` entries at EVERY config load would add
+~300ms to every single hook invocation (every Bash command, every Read/Grep/Glob, every SessionStart/SubagentStart) —
+measured too expensive. The decision path does not need the capabilities anyway: an external parser that publishes
+nothing for a `nestedCommand` filter already fails closed (an empty list, per the ordinary nested-command-filter gotcha
+above), and an `optionValue` filter over a value the script never produces already fails to match. So:
+
+- **`Config.described_problems(describer)`** computes the described half for every entry in a merged config, given an
+  injected `Describer`. It skips any entry whose parser is PURE (`hasattr(parser, "parse")` — the same duck-typed signal
+  `AllowedCommandPolicy`'s own pure-vs-external dispatch uses, which also correctly skips an already-`Invalid Parser`
+  stand-in, since it has a `.parse()` too) and, for a real external parser, either reports the describe contract breach
+  or checks its `nestedCommand`/`optionValue`/`namedValue` filters against the description — shared logic factored into
+  `lib/described_problems.py` so `config.py` and `escalation_policy.py` don't need to import each other for it
+  (`config.py` already imports `escalation_policy.py` at module level).
+- **`Config.with_additional_warnings(warnings)`** folds the result back into the ordinary `warnings()` channel,
+  copy-on-write.
+- **Only REPORTING entrypoints construct a `Describer`**: `command-policy-render-session-start`,
+  `command-policy-render-subagent-start`, `explain-policy`, `command-policy-lint-config-on-write`, and — a deliberate,
+  narrow exception, not an oversight — `add-allow-policy`'s ask path (`escalation_policy.add_allow_policy_transform`,
+  via `lib/proposal_validation.py`'s `proposal_problems`), because refusing an invalid PROPOSAL before ever showing the
+  ask dialog is exactly what a human approving that dialog needs. This is reachable from
+  `command-policy-analyze-bash-command` (any Bash command goes through the same PreToolUse hook), but only fires when
+  the strict `add-allow-policy` grammar is actually recognised — a rare, deliberate, human-initiated escalation, not the
+  high-frequency ordinary-command case the 300ms measurement was about. **`command-policy-analyze-bash-command` and
+  `command-policy-analyze-path` themselves never construct one** — neither bin file imports `Describer` at all, guarded
+  by a test that reads their source rather than merely observing that a particular input happened not to trigger it.
+- **`add_allow_write.py`'s write side re-runs the same `proposal_problems` check** before writing, as defence in depth —
+  the same "ask-side check plus a write-side re-check" posture `--intent` already has.
+
+## Three Consumers: config (skill), migrate-config (skill), and find-auto-allowed-command (agent)
+
+Improvement `20260915-011123` built the first version of `migrate-config` and `find-auto-allowed-command` — the two the
+trunk's re-plan identified but no earlier leaf owned; improvement `20260919-081655` later converted
+`find-auto-allowed-command` from a skill into a zero-context agent (see its own section below for why); improvement
+`20260925-120037` added the third, `command-policy:config` (`skills/config/SKILL.md`) — the schema reference and
+config-change workflow the other two, and every denial's own hint, all assume a session already has access to.
+`migrate-config` and `find-auto-allowed-command` sit on `Config.explain()`'s rendered output as their input rather than
+reading raw config or re-implementing any decision logic — `migrate-config` via `bin/explain-policy`-shaped reasoning
+about the OLD schema, `find-auto-allowed-command` via the same `explain()` text already injected into its context at
+dispatch, never by shelling out to `explain-policy` itself. `command-policy:config` is different in kind: it is not a
+CONSUMER of a rendered decision, it is the reference a session reaches for BEFORE writing or reasoning about config at
+all — `user-invocable: true`, with a description led by the user's own phrasings ("change my command policy config",
+"stop asking for X", "always allow X", "block X") rather than the plugin name, which the operator found the old
+`shfmt-permissions:config` skill matched poorly on in practice. `Config.explain()`'s own static advisory line
+(`_ADD_ALLOW_POLICY_ADVISORY`, next to the decomposition advisory below) names both `add-allow-policy`'s canonical form
+and `command-policy:config` unconditionally, in every session's injected rules — not only inside a denial's own hint —
+so the skill name is present the moment a session might need it, per the operator's own diagnosis that Claude never
+proposed `add-allow-policy` unprompted simply because it was never SHOWN to a session, not because of any no-prompt
+rule.
 
 **`Config.explain()` distinguishes "no config file exists at either scope" from "a config file exists but is empty."**
 `config_loader.py`'s `_load_layer` used to test `path.exists()` and discard the answer, returning `Config.defaults()`
@@ -725,7 +828,12 @@ reason answers "how do I make THIS command pass," a different question from "how
 allowed" — a program allowed only with `--dry-run` may not do what a real run was for). Before it is allowed to conclude
 that nothing works, it checks whether the denial DECOMPOSES into two auto-allowed commands — see
 [Command Decomposition](#command-decomposition-recovering-from-an-unknowable-argument-denial) below — and only then
-states a candidate (a single command, or a decomposed ordered pair) or says plainly that none was found.
+states a candidate (a single command, or a decomposed ordered pair) or says plainly that none was found. **When nothing
+found works, its terminal fallback (improvement 20260925-120037) names BOTH escalation routes and when to pick each**,
+rather than defaulting to only `bypass-policy` (its behaviour before this improvement, and the operator's own measured
+cause for why Claude never proposed `add-allow-policy` unprompted — it was simply never named at this, the one place
+every denial actually routes to): `bypass-policy` for a one-off, `add-allow-policy` for a command shape that will recur,
+proposing the durable entry in its canonical form and pointing at `command-policy:config` for the schema.
 
 **It deliberately never verifies its own candidate against `Config.decision_for` (or any equivalent), even though that
 method exists and is fully wired by the time this agent runs.** A wrong suggestion is caught the moment the caller
@@ -868,36 +976,41 @@ here so it has a durable home rather than only the improvement file's own record
 
 ## Glossary
 
-| Concept                                    | Home                                                                                                                                                                                                                                                                                                                                                                                                                              |
-| ------------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| Public entrypoint, `ConfigError`           | `lib/config.py`                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| Structured `Warning` (layer provenance)    | `lib/warning_value.py`                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `Statement` AST substrate                  | `lib/statement.py`                                                                                                                                                                                                                                                                                                                                                                                                                |
-| `RedirectOperator`                         | `lib/redirect_operator.py`                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `Filter`, `Action`                         | `lib/filter.py`, `action.py`                                                                                                                                                                                                                                                                                                                                                                                                      |
-| `Matcher` family, `MatchOutcome`           | `lib/matcher.py`, `match_outcome.py`                                                                                                                                                                                                                                                                                                                                                                                              |
-| `PathsFilter`                              | `lib/paths_filter.py`                                                                                                                                                                                                                                                                                                                                                                                                             |
-| `PathResolutionContext`                    | `lib/path_resolution.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
-| `decision_for_path`, `path_permission.py`  | `lib/config.py`, `path_permission.py`                                                                                                                                                                                                                                                                                                                                                                                             |
-| PreToolUse hook JSON mapping               | `lib/hook_envelopes.py`                                                                                                                                                                                                                                                                                                                                                                                                           |
-| Parser family                              | `lib/default_parser.py`, `structured_parser.py`, `command_parser.py`, `provided_parser.py`                                                                                                                                                                                                                                                                                                                                        |
-| `ExternalParserFactory`                    | `lib/external_parser_factory.py`                                                                                                                                                                                                                                                                                                                                                                                                  |
-| `ParsedResult`                             | `lib/parsed_result.py`                                                                                                                                                                                                                                                                                                                                                                                                            |
-| `Pass`, `Policy`, the six Policy classes   | `lib/pass_.py`, `policy.py`, `*_policy.py`                                                                                                                                                                                                                                                                                                                                                                                        |
-| `Reason` value objects                     | `lib/reason.py`                                                                                                                                                                                                                                                                                                                                                                                                                   |
-| The single reason renderer                 | `lib/reason_renderer.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
-| Escalation transformers (bypass/add-allow) | `lib/escalation_policy.py`                                                                                                                                                                                                                                                                                                                                                                                                        |
-| `add-allow-policy` write-side logic        | `lib/add_allow_write.py`, `bin/add-allow-policy`                                                                                                                                                                                                                                                                                                                                                                                  |
-| `bypass-policy` runtime (exec's its argv)  | `bin/bypass-policy`                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Bundled reference parser scripts           | `parsers/` (most are copies of `packages/shfmt-permissions/scripts/parsers/`; the four wrapper parsers — `timeout.py`, `nix.py`, `nix-shell.py`, `xargs.py` — deliberately diverge to speak the `nestedCommands` protocol the old engine does not understand, and must never be re-synced from it; `spawn-claude.py` has no counterpart there at all — the first bundled parser written FOR this engine rather than ported to it) |
-| Pure config translation                    | `lib/config_migration.py`                                                                                                                                                                                                                                                                                                                                                                                                         |
-| `migrate-config` entrypoint + skill        | `bin/migrate-config`, `skills/migrate-config/SKILL.md`                                                                                                                                                                                                                                                                                                                                                                            |
-| `find-auto-allowed-command` agent          | `agents/find-auto-allowed-command.md`                                                                                                                                                                                                                                                                                                                                                                                             |
-| Per-layer config search/presence record    | `lib/layer_presence.py`                                                                                                                                                                                                                                                                                                                                                                                                           |
-| `audit-session-policy` + session audit     | `bin/audit-session-policy`, `lib/session_audit.py`                                                                                                                                                                                                                                                                                                                                                                                |
-| Decision specification                     | `tests/test_permission_decisions.py`                                                                                                                                                                                                                                                                                                                                                                                              |
-| Bundled parser unit tests                  | `tests/test_bundled_parsers.py` (subprocess `run_parser`, ported from `packages/shfmt-permissions/tests/test_new_parsers.py`'s convention; covers only the four wrapper parsers, not all fifteen bundled scripts)                                                                                                                                                                                                                 |
-| cwd-pinning fixture                        | `tests/conftest.py`                                                                                                                                                                                                                                                                                                                                                                                                               |
-| Live (old) engine                          | `packages/shfmt-permissions/scripts/analyze-bash-command.py`                                                                                                                                                                                                                                                                                                                                                                      |
-| Outcome model rationale                    | `docs/improvements/improvement-20260914-195111-statement-value-object-refactor.md`                                                                                                                                                                                                                                                                                                                                                |
-| Unknowable-expansion rules (Flag List G)   | `docs/improvements/improvement-20260914-213049-shfmt-golden-corpus-harness.md`                                                                                                                                                                                                                                                                                                                                                    |
+| Concept                                                                             | Home                                                                                                                                                                                                                                                                                                                                                                                                                              |
+| ----------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Public entrypoint, `ConfigError`                                                    | `lib/config.py`                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| Structured `Warning` (layer provenance)                                             | `lib/warning_value.py`                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Statement` AST substrate                                                           | `lib/statement.py`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `RedirectOperator`                                                                  | `lib/redirect_operator.py`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `Filter`, `Action`                                                                  | `lib/filter.py`, `action.py`                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `Matcher` family, `MatchOutcome`                                                    | `lib/matcher.py`, `match_outcome.py`                                                                                                                                                                                                                                                                                                                                                                                              |
+| `PathsFilter`                                                                       | `lib/paths_filter.py`                                                                                                                                                                                                                                                                                                                                                                                                             |
+| `PathResolutionContext`                                                             | `lib/path_resolution.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `decision_for_path`, `path_permission.py`                                           | `lib/config.py`, `path_permission.py`                                                                                                                                                                                                                                                                                                                                                                                             |
+| PreToolUse hook JSON mapping                                                        | `lib/hook_envelopes.py`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| Parser family, `InvalidParser` stand-in                                             | `lib/default_parser.py`, `structured_parser.py`, `command_parser.py`, `provided_parser.py`, `parser_factory.py`                                                                                                                                                                                                                                                                                                                   |
+| `ExternalParserFactory`                                                             | `lib/external_parser_factory.py`                                                                                                                                                                                                                                                                                                                                                                                                  |
+| Describe protocol: `Describer`, `ParserDescription`, `described_problems_for_entry` | `lib/describer.py`, `parser_description.py`, `described_problems.py`                                                                                                                                                                                                                                                                                                                                                              |
+| `InvalidFilter` (generalised `UncompilableFilter`)                                  | `lib/filter.py`                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| `AllowedCommand.problems()`, `programGlob` validity                                 | `lib/allowed_command.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `ParsedResult`                                                                      | `lib/parsed_result.py`                                                                                                                                                                                                                                                                                                                                                                                                            |
+| `Pass`, `Policy`, the six Policy classes                                            | `lib/pass_.py`, `policy.py`, `*_policy.py`                                                                                                                                                                                                                                                                                                                                                                                        |
+| `Reason` value objects                                                              | `lib/reason.py`                                                                                                                                                                                                                                                                                                                                                                                                                   |
+| The single reason renderer                                                          | `lib/reason_renderer.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| Escalation transformers (bypass/add-allow)                                          | `lib/escalation_policy.py`                                                                                                                                                                                                                                                                                                                                                                                                        |
+| `add-allow-policy` write-side logic                                                 | `lib/add_allow_write.py`, `bin/add-allow-policy`                                                                                                                                                                                                                                                                                                                                                                                  |
+| Proposal validation (ask-side refusal + write-side re-check)                        | `lib/proposal_validation.py`                                                                                                                                                                                                                                                                                                                                                                                                      |
+| `command-policy:config` skill                                                       | `skills/config/SKILL.md`, `tests/test_skill_drift.py`                                                                                                                                                                                                                                                                                                                                                                             |
+| `bypass-policy` runtime (exec's its argv)                                           | `bin/bypass-policy`                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Bundled reference parser scripts                                                    | `parsers/` (most are copies of `packages/shfmt-permissions/scripts/parsers/`; the four wrapper parsers — `timeout.py`, `nix.py`, `nix-shell.py`, `xargs.py` — deliberately diverge to speak the `nestedCommands` protocol the old engine does not understand, and must never be re-synced from it; `spawn-claude.py` has no counterpart there at all — the first bundled parser written FOR this engine rather than ported to it) |
+| Pure config translation                                                             | `lib/config_migration.py`                                                                                                                                                                                                                                                                                                                                                                                                         |
+| `migrate-config` entrypoint + skill                                                 | `bin/migrate-config`, `skills/migrate-config/SKILL.md`                                                                                                                                                                                                                                                                                                                                                                            |
+| `find-auto-allowed-command` agent                                                   | `agents/find-auto-allowed-command.md`                                                                                                                                                                                                                                                                                                                                                                                             |
+| Per-layer config search/presence record                                             | `lib/layer_presence.py`                                                                                                                                                                                                                                                                                                                                                                                                           |
+| `audit-session-policy` + session audit                                              | `bin/audit-session-policy`, `lib/session_audit.py`                                                                                                                                                                                                                                                                                                                                                                                |
+| Decision specification                                                              | `tests/test_permission_decisions.py`                                                                                                                                                                                                                                                                                                                                                                                              |
+| Bundled parser unit tests                                                           | `tests/test_bundled_parsers.py` (subprocess `run_parser`, ported from `packages/shfmt-permissions/tests/test_new_parsers.py`'s convention, for the four wrapper parsers' own parsing behaviour; `run_parser_describe` covers the describe protocol for all 17 bundled parsers, including a cross-check that each declared `optionsWithValues` member actually produces a non-empty `arguments` list on real output)               |
+| cwd-pinning fixture                                                                 | `tests/conftest.py`                                                                                                                                                                                                                                                                                                                                                                                                               |
+| Live (old) engine                                                                   | `packages/shfmt-permissions/scripts/analyze-bash-command.py`                                                                                                                                                                                                                                                                                                                                                                      |
+| Outcome model rationale                                                             | `docs/improvements/improvement-20260914-195111-statement-value-object-refactor.md`                                                                                                                                                                                                                                                                                                                                                |
+| Unknowable-expansion rules (Flag List G)                                            | `docs/improvements/improvement-20260914-213049-shfmt-golden-corpus-harness.md`                                                                                                                                                                                                                                                                                                                                                    |

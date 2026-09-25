@@ -3,11 +3,41 @@
 ## Meta
 
 - Related Ticket: None
-- Status: planned
+- Status: completed (via absorption — see note below; never separately implemented)
 - Created: 2026-09-20
-- Updated: 2026-09-20
+- Updated: 2026-09-25
 - Plan started: 2026-09-20T15:27:34+02:00
 - Depends on: 20260920-131722
+
+## Absorbed by improvement-20260925-120037 (2026-09-25)
+
+This improvement's own Proposed Approach was never written (`(To be determined)` below is the state it was left in). Its
+whole problem class — `Config.from_dict`/`Config.decision_for` raising an uncaught `ConfigError` for an
+`allowedCommands` defect, reaching every `bin/` entrypoint as an unhandled exception — was resolved as a side effect of
+improvement `20260925-120037`'s value-object refactor, not by implementing a catch at the entrypoints this file proposed
+to add one to. That improvement's Proposed Approach named this file explicitly: "This absorbs the decision-time half and
+the `programGlob` load-time half of planned improvement `20260920-152953`."
+
+**What actually happened, in full — broader than the "decision-time half and `programGlob` load-time half" the other
+improvement's own approach text anticipated:** every `ConfigError` raise site this improvement's Objective names (a
+retired `commandParser` key, an `optionValue` filter naming an option its parser never populates, an unrecognised filter
+type/action, a `nestedCommand` filter on a parser that cannot publish sub-commands, an unrecognised `commandParser`
+type, a malformed `programGlob` entry) no longer raises reachably at all — `AllowedCommand.from_entry`,
+`Filter.from_definition`, and `lib/parser_factory.py`'s `build_parser` convert every one of these into a construction-
+time PROBLEM (`AllowedCommand.problems()`) instead. The two `ConfigError` raise sites that remain in the codebase
+(`Action.from_definition` for an unrecognised action, `StructuredParser.from_definition` for a retired key) are both
+caught by their own direct callers (`Filter.from_definition`, `lib/parser_factory.py`'s `_build_structured`
+respectively) before ever reaching `Config.from_dict`/`decision_for` — confirmed live:
+`grep -rn "raise ConfigError" lib/` returns exactly those two sites, neither reachable from any `bin/` entrypoint. **No
+separate "catch it at the entrypoints" implementation was ever needed or written** — there is nothing left to catch. See
+that improvement's own Success Criteria ("No `ConfigError` escapes `decision_for` for any `allowedCommands` defect...")
+and its knowledgebase update (`docs/knowledgebase/command-policy-decision-model.md`, "Load-Time Rejection Superseded by
+Construction-Time Problems") for the design this file's TODO would otherwise have needed to build.
+
+The `Path('.')` vs. `os.getcwd()` project-directory fallback divergence this file's Objective also raised as a loose
+thread was NOT addressed by that work and remains open if it still matters - re-measure before assuming it is still
+true, since `PathResolutionContext.for_project()` (new in `20260925-120037`) is now the single place that fallback lives
+(`os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())`), which may already have changed the shape of that divergence.
 
 ## This Improvement's Objective
 
@@ -84,9 +114,9 @@ channel.
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] (To be determined)
-- [ ] Update status to completed
+- [x] Update status to in-progress (skipped in practice — absorbed before ever starting; see the absorption note above)
+- [x] (To be determined) — resolved by absorption into improvement-20260925-120037, never separately implemented
+- [x] Update status to completed
 
 ## Related Past Improvements
 
