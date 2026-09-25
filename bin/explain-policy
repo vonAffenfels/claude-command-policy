@@ -4,6 +4,10 @@
 Replaces shfmt-permissions' render-shfmt-permissions. Prints the merged
 config's rendering (auto-allowed commands first, per the deny-by-default
 model) plus any warnings, then exits 0.
+
+A REPORTING entrypoint (improvement 20260925-120037) - see
+command-policy-render-session-start's own docstring for what folding
+`described_problems` in here means and why the decision hooks never do it.
 """
 
 import os
@@ -12,10 +16,12 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_loader import load_config_from_environment
+from describer import Describer
 
 
 def main():
     config = load_config_from_environment()
+    config = config.with_additional_warnings(config.described_problems(Describer()))
     print(config.explain())
     return 0
 

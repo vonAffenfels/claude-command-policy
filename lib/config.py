@@ -250,6 +250,36 @@ class Config:
     def warnings(self):
         return self._warnings
 
+    def with_additional_warnings(self, warnings):
+        """Copy-on-write append, for a reporting entrypoint to fold
+        `described_problems(describer)`'s result back in before rendering -
+        never used by any decision-time consumer, which never constructs a
+        describer at all (improvement 20260925-120037)."""
+        return self._replace(warnings=self._warnings + tuple(warnings))
+
+    def described_problems(self, describer):
+        """Every PROBLEM only a parser's own describe response can answer:
+        a `command`/`provided` parser breaching the describe contract, a
+        `nestedCommand` filter beside a parser whose description says it
+        never publishes sub-commands, an `optionValue` filter naming an
+        option the description never lists as value-consuming, or a
+        `namedValue` filter naming a value the description never lists as
+        published. Static problems (an unrecognised type, a pure-parser
+        capability mismatch, ...) are `AllowedCommand.problems()`'s own job
+        and already flow through `warnings()` - this method exists only for
+        what needs the subprocess call, so it is never invoked from a
+        decision hook (see `describer.py`'s module docstring on where a
+        `Describer` may be constructed at all).
+
+        Returns `Warning`s, layered like every other one this package
+        renders - the caller folds them in via `with_additional_warnings`.
+        """
+        return tuple(
+            Warning.allowed_command_problem(layer=entry.source, program=entry.program_label, problem=problem)
+            for entry in self._allowed_commands
+            for problem in _described_problems_for_entry(entry, describer)
+        )
+
     def explain(self):
         sections = []
         layer_presence_section = self._layer_presence.explain()
@@ -417,6 +447,63 @@ def _collect_allowed_command_problem_warnings(allowed_commands, source):
         for entry in allowed_commands
         for problem in entry.problems()
     )
+
+
+def _described_problems_for_entry(entry, describer):
+    """Problems for ONE entry that only its parser's own describe response
+    can answer - empty for a pure parser (DefaultParser/StructuredParser,
+    identified the same `hasattr(parser, "parse")` way allowed_command_
+    policy.py's own pure-vs-external dispatch does) or an already-invalid
+    one (an `InvalidParser` stand-in has a `.parse()` too, so it reads as
+    "pure" here and is skipped - its own static problem is already
+    reported)."""
+    parser = entry.parser
+    if hasattr(parser, "parse"):
+        return ()
+
+    command = getattr(parser, "command", None)
+    description = describer.describe(command) if command else None
+    if description is None:
+        return (
+            f"parser script {command!r} did not answer the describe protocol correctly "
+            "(non-zero exit, timeout, malformed JSON, or a response missing/mis-shaping one "
+            "of its required keys)",
+        )
+
+    return tuple(
+        problem
+        for definition in entry.filters
+        for problem in (_described_filter_problem(definition, description),)
+        if problem is not None
+    )
+
+
+def _described_filter_problem(definition, description):
+    filter_type = definition.get("type")
+
+    if filter_type == "nestedCommand" and not description.publishes_nested_commands:
+        return (
+            "a nestedCommand filter needs a parser that can publish sub-commands, but this "
+            "parser's own describe response says it never does"
+        )
+
+    if filter_type == "optionValue":
+        option = definition.get("option")
+        if option not in description.options_with_values:
+            return (
+                f"optionValue filter names option {option!r}, which this parser's own describe "
+                "response never lists as a value it publishes"
+            )
+
+    if filter_type == "namedValue":
+        name = definition.get("name")
+        if name not in description.named_values:
+            return (
+                f"namedValue filter names {name!r}, which this parser's own describe response "
+                "never lists as a value it publishes"
+            )
+
+    return None
 
 
 def _resolve_command_substitution_response(cfg, source):

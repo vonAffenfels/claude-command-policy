@@ -6,6 +6,10 @@ Re-merges BOTH layers via load_config_from_environment() rather than
 inspecting only the file the tool just wrote - a config-shaped defect (like
 an invalid knob value) is a property of the merged result, not necessarily of
 either file alone.
+
+A REPORTING entrypoint (improvement 20260925-120037) - see
+command-policy-render-session-start's own docstring for what folding
+`described_problems` in here means and why the decision hooks never do it.
 """
 
 import json
@@ -15,6 +19,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_loader import load_config_from_environment
+from describer import Describer
 from hook_envelopes import config_write_lint_response, touches_config_path
 
 
@@ -29,6 +34,7 @@ def main():
         return 0
 
     config = load_config_from_environment()
+    config = config.with_additional_warnings(config.described_problems(Describer()))
     response = config_write_lint_response(config)
     if response is not None:
         print(json.dumps(response))

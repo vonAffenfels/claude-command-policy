@@ -5,6 +5,9 @@ already covered by test_hook_envelopes.py / test_config.py / test_config_migrati
 """
 
 import json
+from pathlib import Path
+
+BIN_DIR = Path(__file__).resolve().parent.parent / "bin"
 
 
 def _config_environment(tmp_path, user_config=None, project_config=None):
@@ -92,6 +95,78 @@ def test_a_broken_user_config_file_surfaces_a_loud_warning_alongside_the_auto_al
     context = json.loads(subagent_start.stdout)["hookSpecificOutput"]["additionalContext"]
     assert "echo" in context
     assert "could not be parsed" in context
+
+
+# =============================================================================
+# Describe protocol wiring (improvement 20260925-120037): the four REPORTING
+# entrypoints fold described_problems() in before rendering; the two DECISION
+# hooks never construct a Describer at all.
+# =============================================================================
+
+
+def _config_with_undescribed_named_value_filter():
+    """A real bundled parser (git) whose own describe() response never lists
+    'notARealNamedValue' - so the entry's namedValue filter is a described
+    problem only the describe subprocess can find."""
+    return {
+        "allowedCommands": [
+            {
+                "program": "git",
+                "commandParser": {"type": "provided", "name": "git"},
+                "filters": [
+                    {"type": "namedValue", "name": "notARealNamedValue", "pattern": "x", "action": "block"}
+                ],
+            }
+        ]
+    }
+
+
+def test_explain_policy_reports_a_described_problem(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config=_config_with_undescribed_named_value_filter())
+
+    result = run_entrypoint("explain-policy", env=env)
+
+    assert "notARealNamedValue" in result.stdout
+
+
+def test_session_start_renderer_reports_a_described_problem(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config=_config_with_undescribed_named_value_filter())
+
+    result = run_entrypoint("command-policy-render-session-start", stdin="{}", env=env)
+
+    assert "notARealNamedValue" in result.stdout
+
+
+def test_subagent_start_renderer_reports_a_described_problem(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config=_config_with_undescribed_named_value_filter())
+
+    result = run_entrypoint("command-policy-render-subagent-start", stdin="{}", env=env)
+
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert "notARealNamedValue" in context
+
+
+def test_lint_on_write_reports_a_described_problem(tmp_path, run_entrypoint):
+    env, home, _ = _config_environment(tmp_path, user_config=_config_with_undescribed_named_value_filter())
+    config_path = home / ".claude" / "command-policy.json"
+    stdin = json.dumps({"tool_input": {"file_path": str(config_path)}})
+
+    result = run_entrypoint("command-policy-lint-config-on-write", stdin=stdin, env=env)
+
+    payload = json.loads(result.stdout)
+    assert "notARealNamedValue" in payload["systemMessage"]
+
+
+def test_decision_hooks_never_import_the_describer():
+    """A static guard, not a behavioural one: the Bash and path decision
+    hooks must never pay a describe subprocess's cost on the hot path (the
+    operator's own constraint - 300ms/hook was measured too expensive).
+    Reads the entrypoint SOURCE rather than mocking subprocess.run, since
+    the property being guarded is "this module never imports Describer at
+    all", not merely "it happened not to call it on this input"."""
+    for name in ("command-policy-analyze-bash-command", "command-policy-analyze-path"):
+        source = (BIN_DIR / name).read_text()
+        assert "Describer" not in source, f"{name} must never construct a Describer"
 
 
 # =============================================================================

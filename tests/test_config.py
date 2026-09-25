@@ -9,7 +9,21 @@ import pytest
 from allowed_command import AllowedCommand
 from config import Config
 from layer_presence import LayerPresence
+from parser_description import ParserDescription
+from path_resolution import PathResolutionContext
 from sensitive_path import SensitivePath
+
+
+class _FakeDescriber:
+    """Injected stand-in for `Describer` (describer.py): a fixed map of
+    command -> `ParserDescription` (or `None`, for a contract breach), so
+    `described_problems` tests never spawn a real subprocess."""
+
+    def __init__(self, descriptions):
+        self._descriptions = descriptions
+
+    def describe(self, command, timeout_ms=1000):
+        return self._descriptions.get(command)
 
 
 def test_defaults_has_no_allowed_commands():
@@ -339,3 +353,101 @@ def test_merged_with_unions_layer_presence_from_both_layers():
     assert explanation.startswith("No command-policy.json config file found at either scope")
     assert "/a" in explanation
     assert "/b" in explanation
+
+
+# -- described_problems / with_additional_warnings -------------------------
+
+
+def _config_with_external_parser_entry(filters, command="/bin/fake-parser"):
+    return Config.from_dict(
+        {
+            "allowedCommands": [
+                {
+                    "program": "tool",
+                    "commandParser": {"type": "command", "command": command},
+                    "filters": filters,
+                }
+            ]
+        },
+        source="project",
+        path_resolution=PathResolutionContext(cwd="/project"),
+    )
+
+
+def test_described_problems_is_empty_for_a_pure_parser():
+    config = Config.from_dict({"allowedCommands": ["echo"]})
+
+    assert config.described_problems(_FakeDescriber({})) == ()
+
+
+def test_described_problems_reports_a_describe_contract_breach():
+    config = _config_with_external_parser_entry(filters=[])
+
+    [problem] = config.described_problems(_FakeDescriber({}))
+
+    assert problem.kind == "allowed_command_problem"
+    assert problem.layer == "project"
+    assert "did not answer the describe protocol correctly" in problem.problem
+
+
+def test_described_problems_reports_a_nested_command_filter_the_description_says_it_cannot_publish():
+    config = _config_with_external_parser_entry(filters=[{"type": "nestedCommand"}])
+    describer = _FakeDescriber(
+        {"/bin/fake-parser": ParserDescription(False, named_values=(), options_with_values=())}
+    )
+
+    [problem] = config.described_problems(describer)
+
+    assert "never does" in problem.problem
+
+
+def test_described_problems_passes_a_nested_command_filter_the_description_says_it_can_publish():
+    config = _config_with_external_parser_entry(filters=[{"type": "nestedCommand"}])
+    describer = _FakeDescriber(
+        {"/bin/fake-parser": ParserDescription(True, named_values=(), options_with_values=())}
+    )
+
+    assert config.described_problems(describer) == ()
+
+
+def test_described_problems_reports_an_option_value_filter_naming_an_undescribed_option():
+    config = _config_with_external_parser_entry(
+        filters=[{"type": "optionValue", "option": "-m", "pattern": "x", "action": "block"}]
+    )
+    describer = _FakeDescriber(
+        {"/bin/fake-parser": ParserDescription(False, named_values=(), options_with_values=("-x",))}
+    )
+
+    [problem] = config.described_problems(describer)
+
+    assert "-m" in problem.problem
+
+
+def test_described_problems_reports_a_named_value_filter_naming_an_undescribed_name():
+    config = _config_with_external_parser_entry(
+        filters=[{"type": "namedValue", "name": "subcommand", "pattern": "x", "action": "block"}]
+    )
+    describer = _FakeDescriber(
+        {"/bin/fake-parser": ParserDescription(False, named_values=("other",), options_with_values=())}
+    )
+
+    [problem] = config.described_problems(describer)
+
+    assert "subcommand" in problem.problem
+
+
+def test_described_problems_names_the_layer_the_entry_came_from():
+    config = _config_with_external_parser_entry(filters=[])
+
+    [problem] = config.described_problems(_FakeDescriber({}))
+
+    assert problem.layer == "project"
+
+
+def test_with_additional_warnings_appends_without_dropping_existing_warnings():
+    config = Config.from_dict({"commandSubstitutionResponse": "invalid"})
+    assert len(config.warnings()) == 1
+
+    combined = config.with_additional_warnings(config.described_problems(_FakeDescriber({})))
+
+    assert len(combined.warnings()) == 1

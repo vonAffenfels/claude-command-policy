@@ -6,6 +6,10 @@ requires the {"hookSpecificOutput": {"hookEventName": "SubagentStart",
 "additionalContext": "..."}} envelope - plain stdout is silently discarded
 here, unlike SessionStart. Subagents run Bash constantly and SessionStart
 does not fire for them, so this is the vehicle that reaches them.
+
+A REPORTING entrypoint (improvement 20260925-120037) - see
+command-policy-render-session-start's own docstring for what folding
+`described_problems` in here means and why the decision hooks never do it.
 """
 
 import json
@@ -15,12 +19,14 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_loader import load_config_from_environment
+from describer import Describer
 from hook_envelopes import subagent_start_envelope
 
 
 def main():
     sys.stdin.read()
     config = load_config_from_environment()
+    config = config.with_additional_warnings(config.described_problems(Describer()))
     print(json.dumps(subagent_start_envelope(config)))
     return 0
 

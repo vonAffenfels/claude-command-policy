@@ -7,6 +7,14 @@ from SubagentStart, which requires the JSON hookSpecificOutput.
 additionalContext envelope (see command-policy-render-subagent-start). A
 present-but-unparseable config file's warning rides along inside the same
 rendering, alongside what is currently auto-allowed.
+
+A REPORTING entrypoint (improvement 20260925-120037): constructs a
+`Describer` as a local, folds `described_problems(describer)` into the
+config before rendering, so a described problem (a nestedCommand/optionValue/
+namedValue filter naming a capability an external parser's own describe
+response says it lacks) is visible here too, not only for a filtered
+`explain-policy` scan. The decision hooks (command-policy-analyze-bash-
+command/-analyze-path) never construct one.
 """
 
 import os
@@ -15,11 +23,13 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_loader import load_config_from_environment
+from describer import Describer
 
 
 def main():
     sys.stdin.read()
     config = load_config_from_environment()
+    config = config.with_additional_warnings(config.described_problems(Describer()))
     print(config.explain())
     return 0
 

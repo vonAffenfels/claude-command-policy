@@ -578,7 +578,7 @@ both could defer it: resolve `exactly` in `matches()`, check the bundled script 
       to `ExternalParserFactory`.
 - [x] All 17 bundled parsers answer describe (`publishesNestedCommands`, named values, `optionsWithValues`). A test
       checks each description against actual output. Add contract-breach fixtures.
-- [ ] `Config.described_problems(describer)` + `with_additional_warnings`. Wire into
+- [x] `Config.described_problems(describer)` + `with_additional_warnings`. Wire into
       `command-policy-render-session-start`, `command-policy-render-subagent-start`, `explain-policy`,
       `command-policy-lint-config-on-write`.
 - [ ] `add-allow-policy`: the ask path refuses a proposal with static or described problems via a new Reason / violation
