@@ -3,12 +3,13 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-progress
+- Status: completed
 - Created: 2026-10-19
 - Updated: 2026-10-19
 - Plan started: 2026-10-19T09:55:20+02:00
 - Plan finished: 2026-10-19T12:58:53+02:00
 - Impl started: 2026-10-19T12:59:29+02:00
+- Impl finished: 2026-10-19T13:11:40+02:00
 - Merge target: main
 
 ## This Improvement's Objective
@@ -397,4 +398,4 @@ pytest's cwd — which lives inside THIS repository and would silently become th
       dependency), knowledgebase article's `PathResolutionContext` paragraphs (load `knowledgebase:philosophy` first)
 - [x] Bump version in `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` in the same commit as the
       content change
-- [ ] Update status to completed
+- [x] Update status to completed
