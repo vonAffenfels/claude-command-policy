@@ -1,0 +1,15 @@
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash|Read",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/home/speckmaier/Projekte/intern/claude-command-policy/.claude/worktrees/improvement-20261019-095449/docs/improvements/work/20261019-095449/experiments/hook-cwd/log-hook-input.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
