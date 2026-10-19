@@ -168,6 +168,12 @@ keep one name).
 
 - Config-side relative paths anchor at the boundary root, command-side at the working directory (Design Decisions).
 
+### Recorded during implementation
+
+- Baseline (before any change): 977 passed in 19.02s. Run via
+  `cd tests && bypass-policy nix-shell --run "python3 -m pytest -q"` — plain `nix-shell --run pytest` is denied by the
+  operator's nix-shell nestedCommand filter (`pytest` is not allow-listed).
+
 ### Risks for the implementation
 
 - Test-suite ambient state: `Config(...)`/`Config.from_dict` default to `PathResolutionContext.for_project()`
@@ -331,8 +337,8 @@ pytest's cwd — which lives inside THIS repository and would silently become th
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] Record baseline: `cd tests && nix-shell --run pytest` result and wall time
+- [x] Update status to in-progress
+- [x] Record baseline: `cd tests && nix-shell --run pytest` result and wall time
 - [ ] Add `pkgs.git` to `tests/shell.nix`; add a `conftest.py` fixture building a main repo with a linked worktree
       (inside `.claude/worktrees/`), a nested independent repo and a non-repo directory
 - [ ] `RepositoryLayout` port + `GitRepositoryLayout` with contract tests (Test Architecture 2)

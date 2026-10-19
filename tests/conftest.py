@@ -109,6 +109,52 @@ def cwd_pinned_inside_project(tmp_path):
 
 
 @pytest.fixture
+def repository_with_linked_worktree(tmp_path):
+    """Real git layout under `tmp_path` (outside THIS repository, so pytest's
+    own cwd never leaks in): a main checkout with one commit, a linked
+    worktree inside it at `.claude/worktrees/wt` (where `EnterWorktree` puts
+    one) and one outside it, a nested independent repository inside the main
+    checkout, and a plain directory that is no repository at all.
+
+    Every path is realpath'd - git reports resolved paths, so a symlinked
+    temp root must not make an otherwise-equal comparison fail.
+    """
+    root = Path(os.path.realpath(tmp_path))
+    main = root / "main"
+    worktree = main / ".claude" / "worktrees" / "wt"
+    worktree_outside_main = root / "outside-wt"
+    nested_repository = main / "vendor" / "nested"
+    not_a_repository = root / "plain"
+
+    def _git(*args, cwd):
+        subprocess.run(
+            ["git", "-c", "user.name=test", "-c", "user.email=test@example.invalid", "-c", "commit.gpgsign=false", *args],
+            cwd=cwd,
+            check=True,
+            capture_output=True,
+        )
+
+    main.mkdir()
+    _git("init", "-q", cwd=main)
+    _git("commit", "-q", "--allow-empty", "-m", "init", cwd=main)
+    _git("worktree", "add", "-q", str(worktree), cwd=main)
+    _git("worktree", "add", "-q", str(worktree_outside_main), cwd=main)
+    (worktree / "docs").mkdir()
+    (main / "src").mkdir()
+    nested_repository.mkdir(parents=True)
+    _git("init", "-q", cwd=nested_repository)
+    not_a_repository.mkdir()
+
+    return SimpleNamespace(
+        main=main,
+        worktree=worktree,
+        worktree_outside_main=worktree_outside_main,
+        nested_repository=nested_repository,
+        not_a_repository=not_a_repository,
+    )
+
+
+@pytest.fixture
 def assert_migration_warns_about():
     """Structural counterpart to `assert_reason_includes` (test_permission_
     decisions.py) for migration warnings: asserts one of `result.warnings`

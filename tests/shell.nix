@@ -4,6 +4,7 @@ pkgs.mkShell {
     pkgs.python313
     pkgs.python313Packages.pytest
     pkgs.shfmt
+    pkgs.git
   ];
 
   shellHook = ''
