@@ -71,6 +71,28 @@ def test_add_allow_policy_writes_to_the_project_config_for_project_scope(run_ent
     assert written["allowedCommands"] == ["rg"]
 
 
+def test_add_allow_policy_run_from_a_worktree_writes_the_main_checkouts_project_config(
+    run_entrypoint, repository_with_linked_worktree
+):
+    """add-allow-policy runs via the Bash tool, where CLAUDE_PROJECT_DIR is
+    unset and the cwd is the session's worktree. It used to write the
+    WORKTREE's config while the hooks read the main checkout's, so an
+    approved entry never took effect (improvement-20261019-095449)."""
+    layout = repository_with_linked_worktree
+
+    result = run_entrypoint(
+        "add-allow-policy",
+        args=["rg", "--scope", "project", "--intent", "why"],
+        env={"CLAUDE_PROJECT_DIR": None},
+        cwd=layout.worktree / "docs",
+    )
+
+    assert result.returncode == 0, result.stderr
+    written = json.loads((layout.main / ".claude" / "command-policy.json").read_text())
+    assert written["allowedCommands"] == ["rg"]
+    assert not (layout.worktree / ".claude" / "command-policy.json").exists()
+
+
 def test_add_allow_policy_refuses_to_write_without_an_intent(run_entrypoint, tmp_path):
     home = tmp_path / "home"
     (home / ".claude").mkdir(parents=True)

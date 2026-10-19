@@ -1900,6 +1900,45 @@ def test_a_relative_paths_filter_entry_resolves_against_the_project_not_the_proc
         )
 
 
+@pytest.mark.parametrize(
+    "argument,expected",
+    [
+        ("../file.txt", "allow"),     # from sub/, lands back at the boundary root
+        ("../../file.txt", "deny"),   # from sub/, escapes the boundary root
+    ],
+)
+def test_a_relative_command_argument_resolves_against_the_working_directory_after_cd(
+    argument, expected, cwd_pinned_inside_project, tmp_path
+):
+    """The counterpart to D4 (improvement-20261019-095449): a path written
+    in a COMMAND is relative to where the command runs, which follows Bash
+    `cd`; only CONFIG entries anchor at the boundary root. `../file.txt`
+    from `sub/` is the project's own `file.txt` - inside - and must not be
+    misread against the project root, where it would point outside.
+    """
+    project_dir = tmp_path / "project"
+    sub = project_dir / "sub"
+    sub.mkdir(parents=True)
+
+    with cwd_pinned_inside_project(project_dir=project_dir, cwd=sub):
+        assert_decision(f"cat {argument}", {"allowedCommands": ["cat"]}, expected)
+
+
+def test_after_entering_a_worktree_the_boundary_is_that_worktree(
+    cwd_pinned_inside_project, repository_with_linked_worktree
+):
+    """Launched in the main checkout, then `EnterWorktree`: CLAUDE_PROJECT_DIR
+    stays the main checkout, the cwd moves into the worktree. The boundary
+    follows the cwd's working tree root - the main checkout outside the
+    worktree is no longer inside it, matching what Claude Code itself
+    enforces there (improvement-20261019-095449)."""
+    layout = repository_with_linked_worktree
+
+    with cwd_pinned_inside_project(project_dir=layout.main, cwd=layout.worktree / "docs"):
+        assert_decision(f"cat {layout.worktree}/file.txt", {"allowedCommands": ["cat"]}, "allow")
+        assert_decision(f"cat {layout.main}/src/file.txt", {"allowedCommands": ["cat"]}, "deny")
+
+
 # =============================================================================
 # Batch 3b: symlink resolution (improvement-20260918-185726)
 #

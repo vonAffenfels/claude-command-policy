@@ -28,6 +28,19 @@ BIN_DIR = PLUGIN_ROOT / "bin"
 sys.path.insert(0, str(LIB_DIR))
 
 
+@pytest.fixture(autouse=True)
+def isolated_from_this_repository(tmp_path, monkeypatch):
+    """Every test starts with its cwd in its own `tmp_path` and no
+    `CLAUDE_PROJECT_DIR`. pytest's own cwd lives inside THIS repository, and
+    `Workspace` derives the path boundary from the cwd's git working tree
+    (improvement-20261019-095449) - an inherited cwd would silently make this
+    repository the boundary of any test that forgot to pin it (the Flag List
+    F1 class of false-green). Tests that need a specific layout still pin it
+    explicitly via `cwd_pinned_inside_project` or `monkeypatch`."""
+    monkeypatch.chdir(tmp_path)
+    monkeypatch.delenv("CLAUDE_PROJECT_DIR", raising=False)
+
+
 @pytest.fixture
 def ast_of():
     """Parse a bash command string to its raw shfmt JSON AST dict.
@@ -52,24 +65,33 @@ def ast_of():
 def run_entrypoint():
     """Drive a bin/ entrypoint end-to-end via subprocess.
 
-    Returns a callable (name, args=(), stdin=None, env=None) -> CompletedProcess,
-    exercising the real shebang + CLI contract. `env` overlays os.environ so PATH
-    (needed by `/usr/bin/env python3`) is inherited while other variables can be
-    overridden.
+    Returns a callable (name, args=(), stdin=None, env=None, cwd=None) ->
+    CompletedProcess, exercising the real shebang + CLI contract. `env`
+    overlays os.environ so PATH (needed by `/usr/bin/env python3`) is
+    inherited while other variables can be overridden - a `None` value
+    REMOVES that variable (e.g. `CLAUDE_PROJECT_DIR`, which the Bash tool
+    never sets). `cwd` is the entrypoint's process cwd; left unset it is
+    `CLAUDE_PROJECT_DIR` when one is given - where a freshly launched
+    session's hooks run - else the test's own cwd (see
+    `isolated_from_this_repository`).
     """
 
-    def _run(name, args=(), stdin=None, env=None):
+    def _run(name, args=(), stdin=None, env=None, cwd=None):
         entry = BIN_DIR / name
         if not entry.exists():
             raise FileNotFoundError(f"no entrypoint named {name!r} in bin/")
 
-        full_env = {**os.environ, **(env or {})}
+        overlaid = {**os.environ, **(env or {})}
+        full_env = {variable: value for variable, value in overlaid.items() if value is not None}
+        if cwd is None:
+            cwd = full_env.get("CLAUDE_PROJECT_DIR")
         return subprocess.run(
             [str(entry), *map(str, args)],
             input=stdin,
             capture_output=True,
             text=True,
             env=full_env,
+            cwd=cwd,
         )
 
     return _run

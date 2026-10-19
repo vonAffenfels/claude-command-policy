@@ -173,6 +173,25 @@ keep one name).
 - Baseline (before any change): 977 passed in 19.02s. Run via
   `cd tests && bypass-policy nix-shell --run "python3 -m pytest -q"` — plain `nix-shell --run pytest` is denied by the
   operator's nix-shell nestedCommand filter (`pytest` is not allow-listed).
+- Naming: `Workspace` (lib/workspace.py), `RepositoryLayout`/`GitRepositoryLayout` (lib/repository_layout.py).
+  `PathResolutionContext.for_project()` was REMOVED, not delegated: every former caller calls
+  `Workspace.of_this_session().path_resolution()` directly (one name, no import cycle). `for_process()` stays (tests).
+  `Workspace.project_root()` added for `migrate-config`'s source `shfmt-permissions.json`, which lives beside the
+  target.
+- `GitRepositoryLayout` runs `git` with a 5s timeout and treats ANY `SubprocessError` as "not a repository". Found via
+  the spec suite's `_break_shfmt(timeout)` case: it patches the shared `subprocess.run`, so the git call raised
+  `TimeoutExpired` (not an `OSError`). It also strips `GIT_DIR`/`GIT_WORK_TREE`/`GIT_COMMON_DIR` so git answers for the
+  directory asked, not for a repository whose git hook is running.
+- The add-allow `ask` diff now names the RESOLVED project config file (absolute path), not the literal
+  `${CLAUDE_PROJECT_DIR}/...` string; `add_allow_policy_transform` takes an optional `project_config_file` for tests.
+- Test isolation: an autouse `isolated_from_this_repository` fixture (conftest.py) chdirs every test into its `tmp_path`
+  and unsets `CLAUDE_PROJECT_DIR`. `run_entrypoint` gained `cwd=` (default: the overlaid `CLAUDE_PROJECT_DIR` — a
+  freshly launched session's hook cwd) and treats a `None` env value as "remove". Audit result:
+  `test_config_loader.py`'s environment test and all `_config_environment`/`shfmt_permissions_config_fixture` entrypoint
+  runs inherited pytest's cwd (inside this repository); none asserted containment, so none was false-green, but two
+  (`echo hi` allow cases) turned red once isolated because `DefaultParser` validates EVERY argument as a path and the
+  cwd (`tmp_path`) was the PARENT of the project — the run_entrypoint default fixes the shape, not the rule.
+- Runtime: 977 tests / 19.02s → 1012 tests / 21.09s (+35 tests, +~2s ≈ +11%; the git subprocesses per default `Config`).
 
 ### Risks for the implementation
 
@@ -342,19 +361,19 @@ pytest's cwd — which lives inside THIS repository and would silently become th
 - [x] Add `pkgs.git` to `tests/shell.nix`; add a `conftest.py` fixture building a main repo with a linked worktree
       (inside `.claude/worktrees/`), a nested independent repo and a non-repo directory
 - [x] `RepositoryLayout` port + `GitRepositoryLayout` with contract tests (Test Architecture 2)
-- [ ] `Workspace` value object with in-memory-layout tests (Test Architecture 1), incl. `Workspace.of_this_session()`
-- [ ] Split `PathResolutionContext` into `boundary` / `working_directory`; replace `absolute_path_of` with the
+- [x] `Workspace` value object with in-memory-layout tests (Test Architecture 1), incl. `Workspace.of_this_session()`
+- [x] Split `PathResolutionContext` into `boundary` / `working_directory`; replace `absolute_path_of` with the
       command-side / config-side methods; rename `cwd=` in existing tests (Test Architecture 4)
-- [ ] Route every command-side call site (`default_parser`, `structured_parser`, `redirect_path_validation_policy`,
+- [x] Route every command-side call site (`default_parser`, `structured_parser`, `redirect_path_validation_policy`,
       `path_permission.py:38`) and config-side call site (`paths_filter`, `path_permission.py:52`, allowed prefixes) to
       the matching method; add the spec-suite cases (Test Architecture 5)
-- [ ] Wire `Workspace.of_this_session()` into `config_loader.load_config_from_environment`, `PathResolutionContext`'s
+- [x] Wire `Workspace.of_this_session()` into `config_loader.load_config_from_environment`, `PathResolutionContext`'s
       production factory, `add_allow_write.config_path`, `escalation_policy` (proposal validation context + displayed
       path), `bin/migrate-config`
-- [ ] Entrypoint tests (Test Architecture 3)
-- [ ] Audit tests that set `CLAUDE_PROJECT_DIR` without pinning cwd (Risks); fix any that now resolve against this
+- [x] Entrypoint tests (Test Architecture 3)
+- [x] Audit tests that set `CLAUDE_PROJECT_DIR` without pinning cwd (Risks); fix any that now resolve against this
       repository
-- [ ] Measure suite runtime against the baseline; report
+- [x] Measure suite runtime against the baseline; report
 - [ ] Docs: `skills/config/SKILL.md`, `skills/migrate-config/SKILL.md`, `CLAUDE.md` (config location + `git`
       dependency), knowledgebase article's `PathResolutionContext` paragraphs (load `knowledgebase:philosophy` first)
 - [ ] Bump version in `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` in the same commit as the

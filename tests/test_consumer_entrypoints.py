@@ -309,6 +309,80 @@ def test_analyze_bash_command_prints_nothing_when_the_hook_input_carries_no_comm
     assert result.stdout == ""
 
 
+def _write_project_config(directory, config):
+    (directory / ".claude").mkdir(parents=True, exist_ok=True)
+    (directory / ".claude" / "command-policy.json").write_text(json.dumps(config))
+
+
+def test_analyze_bash_command_launched_in_a_worktree_applies_the_main_checkouts_config(
+    tmp_path, run_entrypoint, repository_with_linked_worktree
+):
+    """The operator's original report (improvement-20261019-095449): a
+    session launched directly in a linked worktree has CLAUDE_PROJECT_DIR =
+    the worktree, whose `.claude/` holds no command-policy.json - the
+    project layer used to disappear silently."""
+    layout = repository_with_linked_worktree
+    _write_project_config(layout.main, {"allowedCommands": ["frobnicate"]})
+    stdin = json.dumps({"tool_input": {"command": "frobnicate"}})
+
+    result = run_entrypoint(
+        "command-policy-analyze-bash-command",
+        stdin=stdin,
+        env={"HOME": str(tmp_path / "home"), "CLAUDE_PROJECT_DIR": str(layout.worktree)},
+        cwd=layout.worktree,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
+
+
+def test_analyze_bash_command_after_entering_a_worktree_bounds_paths_to_that_worktree(
+    tmp_path, run_entrypoint, repository_with_linked_worktree
+):
+    """The EnterWorktree shape: CLAUDE_PROJECT_DIR stays the main checkout,
+    the hook's cwd is the worktree. The main checkout outside the worktree
+    is outside the boundary; the worktree itself is inside."""
+    layout = repository_with_linked_worktree
+    _write_project_config(layout.main, {"allowedCommands": ["cat"]})
+    env = {"HOME": str(tmp_path / "home"), "CLAUDE_PROJECT_DIR": str(layout.main)}
+
+    def decision_for(command):
+        result = run_entrypoint(
+            "command-policy-analyze-bash-command",
+            stdin=json.dumps({"tool_input": {"command": command}}),
+            env=env,
+            cwd=layout.worktree,
+        )
+        assert result.returncode == 0, result.stderr
+        return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"]
+
+    assert decision_for(f"cat {layout.worktree}/notes.txt") == "allow"
+    assert decision_for(f"cat {layout.main}/src/notes.txt") == "deny"
+
+
+def test_migrate_config_run_from_a_worktree_reads_and_writes_the_main_checkouts_files(
+    tmp_path, run_entrypoint, repository_with_linked_worktree
+):
+    """migrate-config runs via the Bash tool - no CLAUDE_PROJECT_DIR, cwd
+    inside the session's worktree."""
+    layout = repository_with_linked_worktree
+    (layout.main / ".claude").mkdir(parents=True, exist_ok=True)
+    (layout.main / ".claude" / "shfmt-permissions.json").write_text(json.dumps({"allowedCommands": ["echo"]}))
+
+    result = run_entrypoint(
+        "migrate-config",
+        args=["--write"],
+        env={"HOME": str(tmp_path / "home"), "CLAUDE_PROJECT_DIR": None},
+        cwd=layout.worktree,
+    )
+
+    assert result.returncode == 0, result.stderr
+    assert json.loads(result.stdout)["project"]["sourceExists"] is True
+    written = json.loads((layout.main / ".claude" / "command-policy.json").read_text())
+    assert written["allowedCommands"] == ["echo"]
+    assert not (layout.worktree / ".claude" / "command-policy.json").exists()
+
+
 # =============================================================================
 # bin/command-policy-analyze-path
 # =============================================================================
