@@ -52,11 +52,44 @@ otherwise keep `{project dir}/.claude/command-policy.json`. Also expected to tou
   is the path-containment BOUNDARY, a separate concern from where the config file lives. Not in this improvement's scope
   unless the operator decides otherwise (see Open Questions).
 
-## Proposed Approach (draft)
+## Proposed Approach
 
-One edge-level value object owns "which repository/worktree is this session in", built ONCE from `git` output, and every
-site listed under Context consumes it instead of re-deriving paths from `CLAUDE_PROJECT_DIR`/`getcwd()`. It answers two
-questions:
+### Concepts
+
+- **`Workspace`** (value object, NEW, `lib/workspace.py`) — where this session is: the project config file, the boundary
+  root, and the working directory. Constructed from plain values (`launch_directory`, `working_directory`) plus an
+  injected `RepositoryLayout` port, so the priority rules below are exercised with an in-memory layout and no `git`.
+  `Workspace.of_this_session()` is the ONE edge factory reading `CLAUDE_PROJECT_DIR` / `os.getcwd()` and wiring the real
+  `git` port; every site in Affected Components goes through it. Name is a proposal — the operator may rename.
+- **`RepositoryLayout`** (integration port, NEW) — two questions answered by `git`, `None` outside a repository or on
+  any `git` failure: `main_repository_root(directory)` (first `worktree ` line of
+  `git -C <dir> worktree list --porcelain`) and `working_tree_root(directory)`
+  (`git -C <dir> rev-parse --show-toplevel`). `GitRepositoryLayout` is the only place `subprocess` runs `git`; tests of
+  `Workspace` use an in-memory `RepositoryLayout` (a fake of OUR port, not a mock of `subprocess`), and
+  `GitRepositoryLayout` gets its own contract tests against real temp repositories.
+- **`PathResolutionContext`** (existing) — gains the split: `boundary` (containment root AND anchor for config-side
+  relative paths) and `working_directory` (anchor for command-side relative paths). Two resolution methods named by
+  WHOSE path it is (e.g. `absolute_path_of_command_argument` / `absolute_path_of_config_entry`); the existing
+  `absolute_path_of` is removed so no call site keeps an ambiguous anchor. `working_directory` defaults to `boundary`,
+  so the ~40 existing `PathResolutionContext(cwd=...)` test constructions only need the keyword rename.
+
+Fantasy callsites:
+
+```python
+workspace = Workspace.of_this_session()
+config = load_config(user_config_path, workspace.project_config_file(), workspace.path_resolution())
+
+workspace = Workspace(launch_directory="/repo/.claude/worktrees/wt", working_directory="/repo/.claude/worktrees/wt/docs",
+                      repository_layout=InMemoryRepositoryLayout(main_root="/repo", working_tree_root="/repo/.claude/worktrees/wt"))
+assert workspace.project_config_file() == Path("/repo/.claude/command-policy.json")
+assert workspace.boundary() == "/repo/.claude/worktrees/wt"
+
+context = PathResolutionContext(boundary="/wt", working_directory="/wt/docs")
+assert context.absolute_path_of_command_argument("../x") == "/wt/x"
+assert context.absolute_path_of_config_entry("notes.txt") == "/wt/notes.txt"
+```
+
+### Rules
 
 - **Project config file** → `{main repository root}/.claude/command-policy.json`. Main repository root = first
   `worktree ` line of `git -C <launch dir> worktree list --porcelain`, where launch dir = `CLAUDE_PROJECT_DIR`, else
@@ -82,9 +115,15 @@ Outside a git repository (`git` exit 128, or `git` missing/failing), all three f
 `git` runs as a subprocess on every hook invocation (two calls). Accepted per operator decision; the cost is to be
 noted, not optimised away by reading `.git` files.
 
-Rules stay database-free in the user's sense: `PathResolutionContext` already receives its root at construction, and the
-config loader already receives file paths — only the edge factories (`for_project()`, `load_config_from_environment()`,
-`add_allow_write.config_path`, `bin/migrate-config`) change where they get them.
+- **Relative paths written in the CONFIG** (`paths` filter `exactly`, allowedPaths rules, relative
+  `additionalAllowedPathPrefixes`) → the boundary root. Keeps D4 (`tests/test_permission_decisions.py:1875`): a config
+  entry's meaning must not depend on where the session happens to stand. Inside a worktree, `exactly: ["notes.txt"]`
+  means THAT worktree's `notes.txt`.
+
+Rules stay free of ambient state: `PathResolutionContext` and `Workspace` receive everything at construction; only
+`Workspace.of_this_session()` (and `GitRepositoryLayout`) touch the environment, cwd and `git`.
+`PathResolutionContext.for_project()` becomes a delegation to it (or is removed in favour of it — implementer's call,
+keep one name).
 
 ## Affected Components
 
@@ -107,6 +146,10 @@ config loader already receives file paths — only the edge factories (`for_proj
   `docs/knowledgebase/command-policy-decision-model.md` (the `PathResolutionContext` paragraphs), `CLAUDE.md` ("Config
   lives at …").
 - `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` — version bump in the same commit.
+- `tests/shell.nix` — add `pkgs.git` (today only python313, pytest, shfmt; the impure shell inherits PATH, so `git`
+  works by accident).
+- `CLAUDE.md` "Tests" paragraph — `git` joins Python 3 and `shfmt` as an assumed runtime dependency (absent `git`
+  degrades to the non-repository fallback, never an error).
 
 ## Implementation Notes
 
@@ -121,15 +164,7 @@ config loader already receives file paths — only the edge factories (`for_proj
 - Splitting `PathResolutionContext._cwd` into relative-path base and boundary: in scope (operator: "yes please").
 - Boundary when cwd is in a different repository: current git root wins, else `CLAUDE_PROJECT_DIR` (Design Decisions).
 
-### Open Questions
-
-- (To be discussed) Relative paths written in the CONFIG (`paths` filter `exactly`, allowedPaths rules, relative
-  `additionalAllowedPathPrefixes`): anchor at the boundary root (proposed), not the process cwd. An existing spec test
-  pins exactly this for the project dir — `tests/test_permission_decisions.py:1875`
-  `test_a_relative_paths_filter_entry_resolves_against_the_project_not_the_process_cwd` (Flag List D4: "resolving
-  against the process cwd would make the filter's meaning depend on where the user happened to be standing"). So the
-  split is really three-way: command-side relative → process cwd; config-side relative → boundary root; containment →
-  boundary root.
+- Config-side relative paths anchor at the boundary root, command-side at the working directory (Design Decisions).
 
 ### Risks for the implementation
 
@@ -150,6 +185,43 @@ config loader already receives file paths — only the edge factories (`for_proj
   work at all — `cd` is a shell builtin and `bypass-policy` runs its argument as a subprocess (measured:
   `bypass-policy cd /tmp` → exit 127, "No such file or directory"). The remaining route is a `cd` into an
   `additionalAllowedPathPrefixes` entry; if that prefix is itself a git repository, the boundary becomes it.
+
+## Test Architecture
+
+Run: `cd tests && nix-shell --run pytest` (CLAUDE.md). TDD via the `tdd` skill; record suite runtime BEFORE the first
+change (see Risks).
+
+1. **`tests/test_workspace.py` (NEW) — the priority rules, no `git`.** `Workspace` with an in-memory `RepositoryLayout`:
+   - launched in main checkout, cwd main → config `<main>/.claude/command-policy.json`, boundary `<main>`
+   - launched in main checkout, cwd in a linked worktree (after `EnterWorktree`) → config main, boundary worktree
+   - launched in a worktree (`CLAUDE_PROJECT_DIR` = worktree) → config main, boundary worktree
+   - cwd in a worktree SUBDIRECTORY → boundary is the worktree ROOT, working directory the subdirectory
+   - launched in a subdirectory of the main checkout → config at the main ROOT, not the subdirectory
+   - cwd in a nested independent repository → boundary = that repository; config still from the launch dir's main
+   - not a repository → config `<launch dir>/.claude/command-policy.json`, boundary = launch dir
+   - launch dir in a repository but cwd outside any → boundary = launch dir (priority 2)
+2. **`tests/test_repository_layout.py` (NEW) — contract tests of `GitRepositoryLayout` against REAL temp repositories**
+   (pytest `tmp_path`; `git init`, `git worktree add`), mirroring `experiments/git-commands/probe.sh`: main root, main
+   subdir, linked worktree inside and outside the main checkout, worktree subdir, nested independent repo, not a repo (→
+   `None`). Needs `git` in `tests/shell.nix` — check it is there; add if not. New fixture in `conftest.py` (e.g.
+   `repository_with_linked_worktree`) for reuse by 3.
+3. **Entrypoint tests — end-to-end through `bin/`** (extend `tests/test_consumer_entrypoints.py` /
+   `test_escalation_entrypoints.py`, using the fixture from 2):
+   - `command-policy-analyze-bash-command` run with `CLAUDE_PROJECT_DIR` = linked worktree, config ONLY in the main
+     checkout → the main checkout's allow entry applies (the operator's original bug).
+   - same, with cwd = linked worktree and `CLAUDE_PROJECT_DIR` = main checkout (the EnterWorktree shape) → a path in the
+     MAIN checkout outside the worktree is now outside the boundary.
+   - `add-allow-policy --scope project` run with cwd = linked worktree and NO `CLAUDE_PROJECT_DIR` → writes the MAIN
+     checkout's config (the measured existing bug).
+   - `migrate-config` same shape → reads/writes the main checkout's files.
+4. **`tests/test_path_resolution.py` — the split.** Command argument `../x` with working directory `/wt/docs` → `/wt/x`;
+   config entry `notes.txt` → `/wt/notes.txt`; containment uses the boundary, not the working directory.
+5. **Spec suite `tests/test_permission_decisions.py`** — add, next to D4: a relative command argument after `cd sub`
+   resolves against the subdirectory (allowed inside, denied when `..` escapes the boundary root). D4 itself must stay
+   green UNCHANGED.
+
+Isolation rule for every new test: pin BOTH `CLAUDE_PROJECT_DIR` and cwd (`cwd_pinned_inside_project`), never inherit
+pytest's cwd — which lives inside THIS repository and would silently become the boundary.
 
 ## Assumptions
 
@@ -221,6 +293,17 @@ config loader already receives file paths — only the edge factories (`for_proj
 - Rejected alternatives: keep one field (relative paths after `cd sub` would resolve against the wrong directory).
 - Date: 2026-10-19
 
+### Anchor for relative paths: config vs. command
+
+- Chosen: relative paths in a COMMAND (arguments, redirect targets, the Read/Grep/Glob target) resolve against the
+  working directory; relative paths in the CONFIG (`paths` `exactly`, allowedPaths rules, allowed prefixes) resolve
+  against the boundary root.
+- Rationale: operator — "Good split between config and command. Please do that". Keeps the existing D4 spec
+  (`test_a_relative_paths_filter_entry_resolves_against_the_project_not_the_process_cwd`).
+- Rejected alternatives: everything against the working directory (config meaning would drift with `cd`, breaks D4);
+  everything against the boundary root (wrong for `cat ../x` after `cd sub`).
+- Date: 2026-10-19
+
 ### How the main repository is found
 
 - Chosen: ask `git` (a subprocess at the edge).
@@ -228,3 +311,44 @@ config loader already receives file paths — only the edge factories (`for_proj
   get it from git. This kind of hacky 'I can do it smarter' is where lots of bugs come from."
 - Rejected alternatives: reading `.git` / `gitdir` / `commondir` files directly to avoid a subprocess.
 - Date: 2026-10-19
+
+## Success Criteria
+
+- A session launched directly in a linked worktree uses the main checkout's `.claude/command-policy.json` (entrypoint
+  test 3a green; manually: `explain-policy` from a worktree-launched session lists the main checkout's rules).
+- After `EnterWorktree`, the boundary is the worktree: a path in the main checkout outside the worktree is outside the
+  boundary; paths inside the worktree are inside.
+- `add-allow-policy --scope project` and `migrate-config` run from a worktree write the main checkout's file.
+- After `cd sub`, a relative command argument resolves against `sub`; relative config entries still resolve against the
+  boundary root (D4 green unchanged).
+- Outside a git repository, behaviour is identical to today (existing suite green without edits beyond the `cwd=` →
+  `boundary=` keyword rename).
+- No `absolute_path_of` call site remains with an ambiguous anchor; no code outside `GitRepositoryLayout` runs `git`; no
+  code outside `Workspace.of_this_session()` reads `CLAUDE_PROJECT_DIR` for path purposes.
+- Suite runtime increase measured and reported.
+
+## Implementation TODO
+
+- [ ] Update status to in-progress
+- [ ] Record baseline: `cd tests && nix-shell --run pytest` result and wall time
+- [ ] Add `pkgs.git` to `tests/shell.nix`; add a `conftest.py` fixture building a main repo with a linked worktree
+      (inside `.claude/worktrees/`), a nested independent repo and a non-repo directory
+- [ ] `RepositoryLayout` port + `GitRepositoryLayout` with contract tests (Test Architecture 2)
+- [ ] `Workspace` value object with in-memory-layout tests (Test Architecture 1), incl. `Workspace.of_this_session()`
+- [ ] Split `PathResolutionContext` into `boundary` / `working_directory`; replace `absolute_path_of` with the
+      command-side / config-side methods; rename `cwd=` in existing tests (Test Architecture 4)
+- [ ] Route every command-side call site (`default_parser`, `structured_parser`, `redirect_path_validation_policy`,
+      `path_permission.py:38`) and config-side call site (`paths_filter`, `path_permission.py:52`, allowed prefixes) to
+      the matching method; add the spec-suite cases (Test Architecture 5)
+- [ ] Wire `Workspace.of_this_session()` into `config_loader.load_config_from_environment`, `PathResolutionContext`'s
+      production factory, `add_allow_write.config_path`, `escalation_policy` (proposal validation context + displayed
+      path), `bin/migrate-config`
+- [ ] Entrypoint tests (Test Architecture 3)
+- [ ] Audit tests that set `CLAUDE_PROJECT_DIR` without pinning cwd (Risks); fix any that now resolve against this
+      repository
+- [ ] Measure suite runtime against the baseline; report
+- [ ] Docs: `skills/config/SKILL.md`, `skills/migrate-config/SKILL.md`, `CLAUDE.md` (config location + `git`
+      dependency), knowledgebase article's `PathResolutionContext` paragraphs (load `knowledgebase:philosophy` first)
+- [ ] Bump version in `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` in the same commit as the
+      content change
+- [ ] Update status to completed
