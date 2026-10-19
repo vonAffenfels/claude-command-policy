@@ -9,10 +9,11 @@ user-invocable: true
 
 # Migrate shfmt-permissions Config to command-policy
 
-Translates `~/.claude/shfmt-permissions.json` and/or `${CLAUDE_PROJECT_DIR}/.claude/shfmt-permissions.json` into their
-`command-policy.json` equivalents. The translation is SEMANTIC, not textual: some old keys rename, some invert polarity,
-some reshape structurally, and four decision knobs cease to exist entirely because command-policy's deny-by-default
-model has nothing left for them to configure.
+Translates `~/.claude/shfmt-permissions.json` and/or `{project root}/.claude/shfmt-permissions.json` into their
+`command-policy.json` equivalents. The project root is the MAIN repository root inside git (also when run from a linked
+worktree), else `${CLAUDE_PROJECT_DIR}` / the current directory. The translation is SEMANTIC, not textual: some old keys
+rename, some invert polarity, some reshape structurally, and four decision knobs cease to exist entirely because
+command-policy's deny-by-default model has nothing left for them to configure.
 
 **Nothing is written until you have reviewed the report and confirmed.** The old `shfmt-permissions.json` file(s) are
 never modified or deleted, in either mode - this migration is purely additive.

@@ -45,8 +45,10 @@ copy-on-write merge, structured layer-provenance warnings, and a deny-by-default
 plainly when no config file was found at either scope, rather than rendering output indistinguishable from a
 present-but-empty config.
 
-Config lives at `~/.claude/command-policy.json` and `${CLAUDE_PROJECT_DIR}/.claude/command-policy.json`, with no
-top-level version key.
+Config lives at `~/.claude/command-policy.json` and `{project root}/.claude/command-policy.json`, with no top-level
+version key. Inside a git repository the project root is the MAIN repository root — also for a session launched in, or
+moved into, a linked worktree — else `${CLAUDE_PROJECT_DIR}`. `Workspace` (`lib/workspace.py`) is the one place that
+decides this, and the path-containment boundary (the working tree the session is in).
 
 A denial's rendered reason ends with an unconditional pointer to the `command-policy:find-auto-allowed-command` AGENT
 (`agents/`, dispatched via Task from empty context, `tools: Read` only — so it structurally cannot shell out to
@@ -66,4 +68,5 @@ effectively invisible to users.
 cd tests && nix-shell --run pytest
 ```
 
-Python 3 and `shfmt` are assumed runtime dependencies; `tests/shell.nix` provides both.
+Python 3, `shfmt` and `git` are assumed runtime dependencies; `tests/shell.nix` provides all three. An absent `git`
+degrades to the non-repository behaviour (`CLAUDE_PROJECT_DIR`-based), never an error.

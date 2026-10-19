@@ -31,7 +31,10 @@ explaining command-policy's config - not when a single command was just denied a
 Two layers, both optional:
 
 - `~/.claude/command-policy.json` (user scope)
-- `${CLAUDE_PROJECT_DIR}/.claude/command-policy.json` (project scope)
+- `{project root}/.claude/command-policy.json` (project scope) - inside a git repository the project root is the MAIN
+  repository root, even when the session runs in a linked worktree (a worktree's own `.claude/command-policy.json` is
+  ignored); outside one it is `${CLAUDE_PROJECT_DIR}`. The `add-allow-policy --scope project` permission dialog names
+  the resolved absolute path.
 
 Both are read and merged (`Config.defaults().merged_with(user).merged_with(project)`); neither is required to exist.
 **Default to the USER scope** unless the user explicitly asks for a project-scoped change - a project config is usually

@@ -192,6 +192,25 @@ keep one name).
   (`echo hi` allow cases) turned red once isolated because `DefaultParser` validates EVERY argument as a path and the
   cwd (`tmp_path`) was the PARENT of the project — the run_entrypoint default fixes the shape, not the rule.
 - Runtime: 977 tests / 19.02s → 1012 tests / 21.09s (+35 tests, +~2s ≈ +11%; the git subprocesses per default `Config`).
+- Manual check (success criterion 1): this branch's `bin/explain-policy`, run via the Bash tool from inside this
+  worktree (no `CLAUDE_PROJECT_DIR`, worktree has no `.claude/command-policy.json`), lists the main checkout's project
+  entry (`python3: must pass 1 filter(s)`).
+- Version bumped 0.6.0 → 0.7.0 in the docs commit, not in the first content commit: the branch is merged as a whole by
+  the orchestrator, so no intermediate commit ever reaches users unbumped.
+
+## Observed during implementation
+
+- **Live evidence of the bug this fixes**, from this session's own (old-engine) hooks: `cd ..` and `rg ../lib` from
+  `<worktree>/tests` were DENIED as "outside the project" because relative command arguments resolved against
+  `CLAUDE_PROJECT_DIR` (the main checkout), not the cwd — `..` became `/home/speckmaier/Projekte/intern`.
+- **Edge case, not covered:** the Bash-run helpers (`add-allow-policy`, `migrate-config`) take their launch dir from the
+  cwd, so after a `cd` into a NESTED independent repository they would write THAT repository's config while the hooks
+  (launch dir = `CLAUDE_PROJECT_DIR`) keep reading the outer one. Inherent to the Bash tool not exporting
+  `CLAUDE_PROJECT_DIR`; a follow-up could refuse a project-scope write whose cwd's main root differs from ... nothing
+  the helper can see. Worth a planning look if nested repositories become common.
+- `PathResolutionContext.exists()` (DefaultParser/StructuredParser's bare-name path heuristic) still asks
+  `os.path.exists` with the RELATIVE value, i.e. against the process cwd — which is now also the command-side anchor, so
+  the two agree; an injected test context has no anchor for it. Left as is.
 
 ### Risks for the implementation
 
@@ -374,8 +393,8 @@ pytest's cwd — which lives inside THIS repository and would silently become th
 - [x] Audit tests that set `CLAUDE_PROJECT_DIR` without pinning cwd (Risks); fix any that now resolve against this
       repository
 - [x] Measure suite runtime against the baseline; report
-- [ ] Docs: `skills/config/SKILL.md`, `skills/migrate-config/SKILL.md`, `CLAUDE.md` (config location + `git`
+- [x] Docs: `skills/config/SKILL.md`, `skills/migrate-config/SKILL.md`, `CLAUDE.md` (config location + `git`
       dependency), knowledgebase article's `PathResolutionContext` paragraphs (load `knowledgebase:philosophy` first)
-- [ ] Bump version in `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` in the same commit as the
+- [x] Bump version in `.claude-plugin/plugin.json` AND `.claude-plugin/marketplace.json` in the same commit as the
       content change
 - [ ] Update status to completed

@@ -452,22 +452,52 @@ without going through `Action.applies_to()`, reintroduces exactly this bug.
 **Parsers split along a purity line, with injected edge-level collaborators standing in for the ambient state a "pure"
 parser cannot read.** `DefaultParser`/`StructuredParser` are pure functions of their arguments plus a
 `PathResolutionContext` (`path_resolution.py`) supplied at construction, which stands in for the `os.path.exists()` /
-`os.path.abspath()` / `os.path.realpath()` reads path detection used to perform directly — `for_process()` is the one
-place that context reads real ambient state, everywhere else a test injects a fixed cwd and predicate. `CommandParser`/
-`ProvidedParser` are pure config objects with an `interpret(raw_output)` method; neither calls `subprocess` — the only
-`subprocess.run` in this family lives in the edge-level `ExternalParserFactory` (`external_parser_factory.py`), which a
-caller constructs and injects rather than a value object building ad-hoc. **Every external-parser failure — non-zero
-exit, timeout, malformed JSON, a missing or non-executable script, an empty command path — collapses to the same `None`
-from the factory.** There is no configurable `fallback` any more; the old engine's `deny|ask|legacy` knob does not exist
-in the new schema.
+`os.path.abspath()` / `os.path.realpath()` reads path detection used to perform directly — production obtains it from
+`Workspace.path_resolution()` (see below), everywhere else a test injects a fixed boundary and predicate.
+`CommandParser`/ `ProvidedParser` are pure config objects with an `interpret(raw_output)` method; neither calls
+`subprocess` — the only `subprocess.run` in this family lives in the edge-level `ExternalParserFactory`
+(`external_parser_factory.py`), which a caller constructs and injects rather than a value object building ad-hoc.
+**Every external-parser failure — non-zero exit, timeout, malformed JSON, a missing or non-executable script, an empty
+command path — collapses to the same `None` from the factory.** There is no configurable `fallback` any more; the old
+engine's `deny|ask|legacy` knob does not exist in the new schema.
 
-`PathResolutionContext.absolute_path_of` resolves symlinks (via an injected `realpath_predicate`, non-strict
-`os.path.realpath` for `for_process()`) on top of its lexical join/expansion — the one seam every path-boundary consumer
-shares, obtained from the single `Config._path_resolution()` factory. Redirect validation, `allowedCommands`
+**A relative path has two anchors, chosen by WHOSE path it is.** `PathResolutionContext` carries a `boundary` and a
+`working_directory`:
+
+- `absolute_path_of_command_argument` — a path written in a COMMAND (argument, redirect target, the Read/Grep/Glob
+  target) resolves against the working directory, which follows Bash `cd`. `cat ../x` after `cd docs` means `<root>/x`.
+- `absolute_path_of_config_entry` — a path written in the CONFIG (`paths` `exactly`, an `allowedPaths` rule, an
+  `additionalAllowedPathPrefixes` entry) resolves against the boundary root, so an entry's meaning never drifts with
+  where the session stands (spec case D4).
+- `is_contained` always checks against the boundary, never the working directory — a `cd` into a subdirectory does not
+  shrink it.
+
+Both resolve symlinks (via an injected `realpath_predicate`, non-strict `os.path.realpath` in production) on top of the
+lexical join/expansion — the one seam every path-boundary consumer shares. Redirect validation, `allowedCommands`
 argument-path validation, `PathsFilter`, and `decision_for_path` therefore all resolve symlinks uniformly with no
-per-consumer logic. `is_contained` resolves the boundary side too — the project root (realpath'd once at construction)
-and every `additionalAllowedPathPrefixes` entry (routed through `absolute_path_of`, so it also gets `~`-expansion) — not
-only the candidate, so a symlinked project root or a symlinked allowed-prefix entry does not produce a false denial.
+per-consumer logic. `is_contained` resolves the boundary side too — the boundary (realpath'd once at construction) and
+every `additionalAllowedPathPrefixes` entry (so it also gets `~`-expansion) — not only the candidate, so a symlinked
+project root or a symlinked allowed-prefix entry does not produce a false denial.
+
+**Where the session is: `Workspace` (`workspace.py`).** `Workspace.of_this_session()` is the one place that reads
+`CLAUDE_PROJECT_DIR` and the process cwd; every reader and writer of the project config (hooks, `explain-policy`,
+`add-allow-policy`, `migrate-config`, the add-allow `ask` diff) and every default `PathResolutionContext` go through it.
+
+- **Project config file** — `{main repository root of the LAUNCH dir}/.claude/command-policy.json`. Launch dir =
+  `CLAUDE_PROJECT_DIR`, else the cwd (the Bash tool never sets `CLAUDE_PROJECT_DIR`, so the Bash-run helpers ask from
+  the cwd). A session launched in the main checkout, launched directly in a linked worktree, or moved into one by
+  `EnterWorktree` all share ONE file; a worktree's own copy is ignored.
+- **Boundary** — the working tree root of the CWD (the worktree the session is actually in, matching what Claude Code
+  enforces there), else the launch dir.
+- **Outside git, or `git` missing/failing/timing out** — both fall back to the launch dir.
+
+`git` is asked, never inferred from `.git`/`gitdir` files — `GitRepositoryLayout` (`repository_layout.py`) is the only
+code that runs it, behind the `RepositoryLayout` port, so `Workspace`'s rules are tested against an in-memory layout. It
+costs a `git` subprocess per question on every hook invocation.
+
+**`cd` into a nested independent repository shrinks the boundary to that repository** (it is the cwd's working tree
+root); paths elsewhere in the project then deny until the session `cd`s back. It fails closed. The config does not
+follow: it is asked from the launch dir.
 
 `ParsedResult` (`parsed_result.py`) carries two independently-named path fields, `paths_for_validation` and
 `paths_for_filtering`, replacing a single shared `paths` list that redirect-path validation and `PathsFilter` both used
@@ -986,6 +1016,8 @@ here so it has a durable home rather than only the improvement file's own record
 | `Matcher` family, `MatchOutcome`                                                    | `lib/matcher.py`, `match_outcome.py`                                                                                                                                                                                                                                                                                                                                                                                              |
 | `PathsFilter`                                                                       | `lib/paths_filter.py`                                                                                                                                                                                                                                                                                                                                                                                                             |
 | `PathResolutionContext`                                                             | `lib/path_resolution.py`                                                                                                                                                                                                                                                                                                                                                                                                          |
+| `Workspace` (project config file, boundary)                                         | `lib/workspace.py`                                                                                                                                                                                                                                                                                                                                                                                                                |
+| `RepositoryLayout`, `GitRepositoryLayout`                                           | `lib/repository_layout.py`                                                                                                                                                                                                                                                                                                                                                                                                        |
 | `decision_for_path`, `path_permission.py`                                           | `lib/config.py`, `path_permission.py`                                                                                                                                                                                                                                                                                                                                                                                             |
 | PreToolUse hook JSON mapping                                                        | `lib/hook_envelopes.py`                                                                                                                                                                                                                                                                                                                                                                                                           |
 | Parser family, `InvalidParser` stand-in                                             | `lib/default_parser.py`, `structured_parser.py`, `command_parser.py`, `provided_parser.py`, `parser_factory.py`                                                                                                                                                                                                                                                                                                                   |
