@@ -64,11 +64,12 @@ questions:
   Asked from the LAUNCH dir, never the current cwd: cwd follows Bash `cd`, and a `cd` into a nested independent repo
   (e.g. a vendored checkout inside the boundary — allowed) would otherwise switch the session to that repo's policy.
   Never the project dir's subpath — always the main repository ROOT.
-- **Path-containment boundary** → `git -C <process cwd> rev-parse --show-toplevel` (process cwd = hook stdin `cwd`;
-  measured identical). The worktree ROOT, so a `cd` into a subdirectory does not shrink it. Accepted only when that
-  worktree belongs to the SAME main repository as the config (same first `worktree list` entry); otherwise (a `cd` into
-  a nested independent repo or out of the repository via `bypass-policy`) the boundary falls back to the toplevel of the
-  launch dir.
+- **Path-containment boundary**, in priority order (operator decision, see Design Decisions):
+  1. the current git root — `git -C <process cwd> rev-parse --show-toplevel` (process cwd = hook stdin `cwd`; measured
+     identical). Whichever worktree or main checkout the session is in; its ROOT, so a `cd` into a subdirectory does not
+     shrink it. No same-repository check.
+  2. `CLAUDE_PROJECT_DIR` (the directory Claude started in) when the process cwd is not inside a git repository; in the
+     Bash-tool helpers, where it is unset, `os.getcwd()`.
 - **Relative-path base** → the process cwd. Today `PathResolutionContext._cwd` is BOTH the relative-path base and the
   boundary (`lib/path_resolution.py:53,91,113`), and both are `CLAUDE_PROJECT_DIR`. Once the boundary is the worktree
   root and cwd can be a subdirectory, these must be two separate fields: `cat ../x` after `cd docs` resolves against
@@ -85,6 +86,28 @@ Rules stay database-free in the user's sense: `PathResolutionContext` already re
 config loader already receives file paths — only the edge factories (`for_project()`, `load_config_from_environment()`,
 `add_allow_write.config_path`, `bin/migrate-config`) change where they get them.
 
+## Affected Components
+
+- `lib/path_resolution.py` — `PathResolutionContext`: split `_cwd` into a boundary root and a relative-path base;
+  `for_project()` obtains both from the new resolver.
+- NEW edge module (name TBD) — the `git`-backed resolver: main repository root (from the launch dir), current git root
+  (from the process cwd), fallbacks. Subprocess lives here only, injected like `ExternalParserFactory`.
+- `lib/config_loader.py` — `load_config_from_environment` project config path.
+- `lib/add_allow_write.py` — `config_path("project")`.
+- `bin/migrate-config` — source `shfmt-permissions.json` and target `command-policy.json` paths.
+- `lib/escalation_policy.py:285-287` — the displayed project config path in the add-allow `ask` diff.
+- Relative-path call sites, classified by WHOSE relative path it is:
+  - command-side (relative to where the command runs → process cwd): `lib/default_parser.py:97,106,108`,
+    `lib/structured_parser.py:172-222`, `lib/redirect_path_validation_policy.py:36`, `lib/path_permission.py:38` (the
+    tool's target path).
+  - config-side (relative to the project → boundary root, see Open Questions): `lib/paths_filter.py:25` (`exactly`
+    entries), `lib/path_permission.py:52` (allowedPaths rule), `PathResolutionContext.is_contained`'s
+    `additionalAllowedPathPrefixes`.
+- Docs: `skills/config/SKILL.md:34`, `skills/migrate-config/SKILL.md:12`,
+  `docs/knowledgebase/command-policy-decision-model.md` (the `PathResolutionContext` paragraphs), `CLAUDE.md` ("Config
+  lives at …").
+- `.claude-plugin/plugin.json` + `.claude-plugin/marketplace.json` — version bump in the same commit.
+
 ## Implementation Notes
 
 ### Resolved during planning
@@ -95,11 +118,38 @@ config loader already receives file paths — only the edge factories (`for_proj
   are working inside a project then you actually want to work on that project." Monorepos with per-package rules are not
   a current use case; explicitly out of scope.
 
+- Splitting `PathResolutionContext._cwd` into relative-path base and boundary: in scope (operator: "yes please").
+- Boundary when cwd is in a different repository: current git root wins, else `CLAUDE_PROJECT_DIR` (Design Decisions).
+
 ### Open Questions
 
-- (To be discussed) Split of `PathResolutionContext._cwd` into relative-path base and boundary — confirm in scope.
-- (To be discussed) Boundary fallback when cwd sits in a nested independent repo / another repo: launch-dir toplevel
-  (proposed) vs. deny-everything.
+- (To be discussed) Relative paths written in the CONFIG (`paths` filter `exactly`, allowedPaths rules, relative
+  `additionalAllowedPathPrefixes`): anchor at the boundary root (proposed), not the process cwd. An existing spec test
+  pins exactly this for the project dir — `tests/test_permission_decisions.py:1875`
+  `test_a_relative_paths_filter_entry_resolves_against_the_project_not_the_process_cwd` (Flag List D4: "resolving
+  against the process cwd would make the filter's meaning depend on where the user happened to be standing"). So the
+  split is really three-way: command-side relative → process cwd; config-side relative → boundary root; containment →
+  boundary root.
+
+### Risks for the implementation
+
+- Test-suite ambient state: `Config(...)`/`Config.from_dict` default to `PathResolutionContext.for_project()`
+  (`lib/config.py:118,129`), which will now run `git` against the PROCESS cwd. Any test that sets `CLAUDE_PROJECT_DIR`
+  without also `chdir`-ing (i.e. not using `cwd_pinned_inside_project`) runs with cwd = `tests/`, inside THIS
+  repository, and its boundary silently becomes this repository's root. Audit such tests; the conftest Flag List F1 note
+  describes exactly this class of false-green.
+- Subprocess cost: two `git` calls per `for_project()`; ~600 tests, many of which build a default `Config`. Measure
+  suite time before/after.
+
+### Known consequences of the boundary rule (accepted)
+
+- `cd` into a NESTED independent repository inside the project (e.g. a vendored checkout with its own `.git`) shrinks
+  the boundary to that nested repository: paths elsewhere in the project then deny until the session `cd`s back. Fails
+  closed (false denials), never open.
+- The cwd cannot otherwise leave the boundary: command-policy denies a `cd` outside it, and `bypass-policy cd …` cannot
+  work at all — `cd` is a shell builtin and `bypass-policy` runs its argument as a subprocess (measured:
+  `bypass-policy cd /tmp` → exit 127, "No such file or directory"). The remaining route is a `cd` into an
+  `additionalAllowedPathPrefixes` entry; if that prefix is itself a git repository, the boundary becomes it.
 
 ## Assumptions
 
@@ -150,6 +200,25 @@ config loader already receives file paths — only the edge factories (`for_proj
 - Rationale: operator — "This does double duty since claude-code itself already enforces this while inside a worktree so
   the session will get the correct hint if we fix this."
 - Rejected alternatives: leaving the boundary on `CLAUDE_PROJECT_DIR` (out of scope).
+- Date: 2026-10-19
+
+### Boundary priority
+
+- Chosen: (1) current git root of the process cwd — worktree or main checkout, wherever the session is; (2)
+  `CLAUDE_PROJECT_DIR`, "the directory claude started in", when not inside a git repository.
+- Rationale: operator — boundary "should be in list of priority: current git root (worktree, main repo depending on
+  where we are), CLAUDE_PROJECT_DIR - this should be the directory claude started in and should always be present".
+- Rejected alternatives: accept the cwd's git root only when it belongs to the same main repository as the config, else
+  fall back to the launch dir's toplevel (Claude's proposal).
+- Date: 2026-10-19
+
+### Separate relative-path base from boundary
+
+- Chosen: `PathResolutionContext` gets two fields — relative paths resolve against the process cwd, containment checks
+  against the boundary.
+- Rationale: operator — "yes please" after the measurement that cwd follows Bash `cd`; with the boundary moving to the
+  worktree ROOT, one field can no longer serve both.
+- Rejected alternatives: keep one field (relative paths after `cd sub` would resolve against the wrong directory).
 - Date: 2026-10-19
 
 ### How the main repository is found
