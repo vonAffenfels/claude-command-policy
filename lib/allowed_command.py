@@ -32,7 +32,7 @@ validates the `marketplace`/`plugin`/`path` dict, but does not resolve
 
 from __future__ import annotations
 
-from path_resolution import PathResolutionContext
+from workspace import Workspace
 
 # `filter` and `parser_factory` are imported LAZILY (inside the functions
 # below) rather than at module level: both transitively import `config`
@@ -78,7 +78,7 @@ class AllowedCommand:
         if isinstance(entry, str):
             entry = {"program": entry}
 
-        resolution = path_resolution or PathResolutionContext.for_project()
+        resolution = path_resolution or Workspace.of_this_session().path_resolution()
         program = entry.get("program")
         program_glob = entry.get("programGlob")
         raw_filters = tuple(entry.get("filters") or ())

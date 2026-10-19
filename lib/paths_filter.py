@@ -22,7 +22,7 @@ class PathsFilter:
         exactly = definition.get("exactly", [])
         if isinstance(exactly, str):
             exactly = [exactly]
-        return cls(path_resolution.absolute_path_of(entry) for entry in exactly)
+        return cls(path_resolution.absolute_path_of_config_entry(entry) for entry in exactly)
 
     def matches(self, parsed):
         paths = parsed.paths_for_filtering

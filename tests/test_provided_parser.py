@@ -17,7 +17,7 @@ BUNDLED_GIT_PARSER = PLUGIN_ROOT / "parsers" / "git.py"
 
 def context_where_only(*existing_suffixes):
     return PathResolutionContext(
-        cwd="/irrelevant",
+        boundary="/irrelevant",
         exists_predicate=lambda path: any(path.endswith(suffix) for suffix in existing_suffixes),
     )
 

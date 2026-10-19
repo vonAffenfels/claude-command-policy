@@ -9,13 +9,13 @@ from statement import Statement
 
 
 def _policy(command, project_dir="/project", allowed_prefixes=()):
-    path_resolution = PathResolutionContext(cwd=project_dir, home="/home/user", exists_predicate=lambda p: False)
+    path_resolution = PathResolutionContext(boundary=project_dir, home="/home/user", exists_predicate=lambda p: False)
     policy = RedirectPathValidationPolicy(path_resolution, allowed_prefixes)
     return policy.for_statement(Statement.from_command(command))
 
 
 def test_pass_is_four_independent_of_which_entry_vouches():
-    path_resolution = PathResolutionContext(cwd="/project")
+    path_resolution = PathResolutionContext(boundary="/project")
     assert RedirectPathValidationPolicy(path_resolution, ()).pass_ == Pass.REDIRECT_PATH_VALIDATION
 
 

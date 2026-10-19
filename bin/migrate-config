@@ -2,7 +2,8 @@
 """migrate-config: dry-run by default, --write applies the migration.
 
 Reads whichever of the user (~/.claude/shfmt-permissions.json) and project
-(${CLAUDE_PROJECT_DIR}/.claude/shfmt-permissions.json) source files exist,
+({project root}/.claude/shfmt-permissions.json - the MAIN repository root
+inside git, even from a linked worktree; see lib/workspace.py) source files exist,
 translates each through lib/config_migration.py (pure, no I/O), and prints a
 JSON report per scope: the migrated config, the warnings (dropped knobs,
 renames, structural reshapes), the existing command-policy.json target (if
@@ -29,6 +30,7 @@ from pathlib import Path
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_migration import migrate_shfmt_permissions_config  # noqa: E402
+from workspace import Workspace  # noqa: E402
 
 SCOPES = ("user", "project")
 
@@ -36,15 +38,13 @@ SCOPES = ("user", "project")
 def _source_path(scope):
     if scope == "user":
         return Path(os.environ.get("HOME", "")) / ".claude" / "shfmt-permissions.json"
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-    return Path(project_dir) / ".claude" / "shfmt-permissions.json"
+    return Workspace.of_this_session().project_root() / ".claude" / "shfmt-permissions.json"
 
 
 def _target_path(scope):
     if scope == "user":
         return Path(os.environ.get("HOME", "")) / ".claude" / "command-policy.json"
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-    return Path(project_dir) / ".claude" / "command-policy.json"
+    return Workspace.of_this_session().project_config_file()
 
 
 def _warning_dict(warning):

@@ -387,7 +387,7 @@ def _config_with_external_parser_entry(filters, command="/bin/fake-parser"):
             ]
         },
         source="project",
-        path_resolution=PathResolutionContext(cwd="/project"),
+        path_resolution=PathResolutionContext(boundary="/project"),
     )
 
 

@@ -27,7 +27,6 @@ from escalation_policy import add_allow_policy_transform, bypass_chain_hint, byp
 from layer_presence import LayerPresence
 from name_collection import AllowedPathPrefixes, BlockedCommands, SensitiveVariables
 from path_config import PathConfig
-from path_resolution import PathResolutionContext
 from path_permission import decision_for as path_permission_decision_for
 from permission_decision import PermissionDecision
 from reason_renderer import ADD_ALLOW_POLICY_CANONICAL_FORM
@@ -37,6 +36,7 @@ from sensitive_paths_policy import SensitivePathsPolicy
 from sensitive_variables_policy import SensitiveVariablesPolicy
 from statement import Statement
 from warning_value import Warning
+from workspace import Workspace
 
 # AllowedCommandPolicy is imported lazily inside _policies() below - its own
 # module imports `from config import ConfigError`, so importing it here at
@@ -115,7 +115,7 @@ class Config:
         self._warnings = tuple(warnings)
         self._source = source
         self._layer_presence = layer_presence or LayerPresence.empty()
-        self._path_resolution = path_resolution or PathResolutionContext.for_project()
+        self._path_resolution = path_resolution or Workspace.of_this_session().path_resolution()
 
     # -- construction ---------------------------------------------------
 
@@ -126,7 +126,7 @@ class Config:
     @classmethod
     def from_dict(cls, cfg, source="config", path_resolution=None):
         cfg = cfg or {}
-        resolved_path_resolution = path_resolution or PathResolutionContext.for_project()
+        resolved_path_resolution = path_resolution or Workspace.of_this_session().path_resolution()
 
         response, response_explicit, response_warnings = _resolve_command_substitution_response(cfg, source)
         allowed_commands = tuple(

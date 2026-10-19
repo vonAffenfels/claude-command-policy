@@ -17,7 +17,7 @@ from structured_parser import StructuredParser
 
 
 def context(exists_predicate=None):
-    return PathResolutionContext(cwd="/home/user/project", exists_predicate=exists_predicate)
+    return PathResolutionContext(boundary="/home/user/project", exists_predicate=exists_predicate)
 
 
 # --- tokenization: consuming options, doubleDashStops, equals-style ---

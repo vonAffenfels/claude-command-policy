@@ -169,18 +169,18 @@ class StructuredParser:
         while the consumed value(s) respect the slot's own `path` field."""
         candidates = []
         for option in options:
-            candidates.append(self._path_resolution.absolute_path_of(option.name))
+            candidates.append(self._path_resolution.absolute_path_of_command_argument(option.name))
             if _is_ruled_out(self._options.get(option.name)):
                 continue
             for value in option.arguments:
                 if value:
-                    candidates.append(self._path_resolution.absolute_path_of(value))
+                    candidates.append(self._path_resolution.absolute_path_of_command_argument(value))
 
         for positional in positionals:
             if _is_ruled_out(self._positionals.get(positional.index)):
                 continue
             if positional.value:
-                candidates.append(self._path_resolution.absolute_path_of(positional.value))
+                candidates.append(self._path_resolution.absolute_path_of_command_argument(positional.value))
 
         return candidates
 
@@ -196,14 +196,14 @@ class StructuredParser:
             if declaration is not None and declaration.path:
                 for value in option.arguments:
                     if value:
-                        candidates.append(self._path_resolution.absolute_path_of(value))
+                        candidates.append(self._path_resolution.absolute_path_of_command_argument(value))
 
         for positional in positionals:
             declaration = self._positionals.get(positional.index)
             if declaration is None:
                 heuristic_indices.add(positional.index)
             elif declaration.path and positional.value:
-                candidates.append(self._path_resolution.absolute_path_of(positional.value))
+                candidates.append(self._path_resolution.absolute_path_of_command_argument(positional.value))
 
         for positional in positionals:
             if positional.index in heuristic_indices:
@@ -217,9 +217,9 @@ class StructuredParser:
         if not value:
             return None
         if value.startswith("/") or value.startswith("~") or "/" in value or value.startswith("."):
-            return self._path_resolution.absolute_path_of(value)
+            return self._path_resolution.absolute_path_of_command_argument(value)
         if self._path_resolution.exists(value):
-            return self._path_resolution.absolute_path_of(value)
+            return self._path_resolution.absolute_path_of_command_argument(value)
         return None
 
 

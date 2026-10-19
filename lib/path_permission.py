@@ -35,7 +35,7 @@ def decision_for(tool_name, path, path_config, resolution):
     if not candidate_paths:
         return PermissionDecision.passthrough()
 
-    target = resolution.absolute_path_of(path)
+    target = resolution.absolute_path_of_command_argument(path)
     if any(_matches(target, allowed, resolution) for allowed in candidate_paths):
         return PermissionDecision.allow()
     return PermissionDecision.passthrough()
@@ -49,7 +49,7 @@ def _expanded_tools(tools):
 
 
 def _matches(target, allowed_raw, resolution):
-    allowed = resolution.absolute_path_of(allowed_raw)
+    allowed = resolution.absolute_path_of_config_entry(allowed_raw)
     if target == allowed:
         return True
     return resolution.is_directory(allowed) and target.startswith(allowed + os.sep)

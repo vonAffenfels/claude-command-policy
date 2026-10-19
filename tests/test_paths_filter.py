@@ -12,7 +12,7 @@ from paths_filter import PathsFilter
 
 
 def context():
-    return PathResolutionContext(cwd="/home/user/project")
+    return PathResolutionContext(boundary="/home/user/project")
 
 
 def test_empty_paths_for_filtering_passes_with_nothing_to_validate():
@@ -45,11 +45,19 @@ def test_a_string_exactly_value_is_treated_as_a_single_entry_list():
     assert filter_.matches(ParsedResult(paths_for_filtering=("/home/user/project/a.txt",))) is True
 
 
-def test_exactly_entries_resolve_against_the_injected_cwd_not_the_process_cwd():
-    filter_ = PathsFilter.from_definition({"exactly": ["a.txt"]}, PathResolutionContext(cwd="/other/dir"))
+def test_exactly_entries_resolve_against_the_injected_boundary_not_the_process_cwd():
+    filter_ = PathsFilter.from_definition({"exactly": ["a.txt"]}, PathResolutionContext(boundary="/other/dir"))
 
     assert filter_.matches(ParsedResult(paths_for_filtering=("/other/dir/a.txt",))) is True
     assert filter_.matches(ParsedResult(paths_for_filtering=("/home/user/project/a.txt",))) is False
+
+
+def test_exactly_entries_resolve_against_the_boundary_not_the_working_directory():
+    resolution = PathResolutionContext(boundary="/other/dir", working_directory="/other/dir/sub")
+    filter_ = PathsFilter.from_definition({"exactly": ["a.txt"]}, resolution)
+
+    assert filter_.matches(ParsedResult(paths_for_filtering=("/other/dir/a.txt",))) is True
+    assert filter_.matches(ParsedResult(paths_for_filtering=("/other/dir/sub/a.txt",))) is False
 
 
 def test_all_detected_paths_must_match_for_the_filter_to_pass():

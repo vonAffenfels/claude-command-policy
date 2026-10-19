@@ -339,9 +339,9 @@ pytest's cwd — which lives inside THIS repository and would silently become th
 
 - [x] Update status to in-progress
 - [x] Record baseline: `cd tests && nix-shell --run pytest` result and wall time
-- [ ] Add `pkgs.git` to `tests/shell.nix`; add a `conftest.py` fixture building a main repo with a linked worktree
+- [x] Add `pkgs.git` to `tests/shell.nix`; add a `conftest.py` fixture building a main repo with a linked worktree
       (inside `.claude/worktrees/`), a nested independent repo and a non-repo directory
-- [ ] `RepositoryLayout` port + `GitRepositoryLayout` with contract tests (Test Architecture 2)
+- [x] `RepositoryLayout` port + `GitRepositoryLayout` with contract tests (Test Architecture 2)
 - [ ] `Workspace` value object with in-memory-layout tests (Test Architecture 1), incl. `Workspace.of_this_session()`
 - [ ] Split `PathResolutionContext` into `boundary` / `working_directory`; replace `absolute_path_of` with the
       command-side / config-side methods; rename `cwd=` in existing tests (Test Architecture 4)

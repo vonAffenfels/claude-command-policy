@@ -94,7 +94,7 @@ class DefaultParser:
             operand = _path_operand_of(argument)
             if not operand:
                 continue
-            candidates.append(self._path_resolution.absolute_path_of(operand))
+            candidates.append(self._path_resolution.absolute_path_of_command_argument(operand))
         return candidates
 
     def _detect_paths(self, values):
@@ -103,9 +103,9 @@ class DefaultParser:
             if not value:
                 continue
             if value.startswith("/") or value.startswith("~") or "/" in value or value.startswith("."):
-                paths.append(self._path_resolution.absolute_path_of(value))
+                paths.append(self._path_resolution.absolute_path_of_command_argument(value))
             elif self._path_resolution.exists(value):
-                paths.append(self._path_resolution.absolute_path_of(value))
+                paths.append(self._path_resolution.absolute_path_of_command_argument(value))
         return paths
 
 

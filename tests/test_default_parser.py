@@ -8,7 +8,7 @@ from path_resolution import PathResolutionContext
 
 
 def context(exists_predicate=None):
-    return PathResolutionContext(cwd="/home/user/project", exists_predicate=exists_predicate)
+    return PathResolutionContext(boundary="/home/user/project", exists_predicate=exists_predicate)
 
 
 def test_dash_prefixed_arguments_become_options():
@@ -39,7 +39,7 @@ def test_an_absolute_positional_is_detected_as_a_path():
 
 
 def test_a_home_relative_positional_is_detected_as_a_path_against_the_injected_home():
-    parser = DefaultParser.from_definition({}, PathResolutionContext(cwd="/x", home="/home/user"))
+    parser = DefaultParser.from_definition({}, PathResolutionContext(boundary="/x", home="/home/user"))
 
     result = parser.parse(["~/notes.txt"])
 

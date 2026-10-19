@@ -21,15 +21,14 @@ from pathlib import Path
 
 from config import Config
 from layer_presence import LayerPresence
-from path_resolution import PathResolutionContext
 from warning_value import Warning
+from workspace import Workspace
 
 USER_CONFIG_RELATIVE_PATH = Path(".claude") / "command-policy.json"
-PROJECT_CONFIG_RELATIVE_PATH = Path(".claude") / "command-policy.json"
 
 
 def load_config(user_config_path, project_config_path, path_resolution=None):
-    context = path_resolution or PathResolutionContext.for_project()
+    context = path_resolution or Workspace.of_this_session().path_resolution()
     return (
         Config.defaults(path_resolution=context)
         .merged_with(_load_layer(user_config_path, layer="user", path_resolution=context))
@@ -38,13 +37,15 @@ def load_config(user_config_path, project_config_path, path_resolution=None):
 
 
 def load_config_from_environment():
+    """The project layer is `Workspace`'s project config file - the MAIN
+    repository's, whichever worktree the session runs in (workspace.py)."""
     home = Path(os.environ.get("HOME", ""))
-    project_dir = Path(os.environ.get("CLAUDE_PROJECT_DIR", "."))
+    workspace = Workspace.of_this_session()
 
     return load_config(
         home / USER_CONFIG_RELATIVE_PATH,
-        project_dir / PROJECT_CONFIG_RELATIVE_PATH,
-        path_resolution=PathResolutionContext.for_project(),
+        workspace.project_config_file(),
+        path_resolution=workspace.path_resolution(),
     )
 
 

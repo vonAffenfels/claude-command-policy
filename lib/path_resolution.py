@@ -5,20 +5,28 @@ normalization perform today, so both are exercisable against declared state
 instead of a real filesystem or the real process cwd.
 
 `for_process()` is the one place this module reads real ambient state - the
-same DI seam shape as `ExternalParserFactory` for subprocess execution.
+same DI seam shape as `ExternalParserFactory` for subprocess execution. The
+production context comes from `Workspace.path_resolution()` (workspace.py),
+which knows the session's boundary and working directory.
 
-`absolute_path_of` resolves symlinks (via the injected `realpath_predicate`,
-non-strict `os.path.realpath` for `for_process()`) on top of the lexical
-join/expansion - the sole seam every path-boundary consumer shares
-(`Config._path_resolution()`), so redirect validation, `allowedCommands`
-argument-path validation, `PathsFilter`, and `decision_for_path` all resolve
-symlinks uniformly with no per-consumer change (improvement-20260918-185726).
-`is_contained` resolves BOTH sides of every containment check - the
-candidate (already realpath'd by `absolute_path_of`) and the boundary
-(`_cwd`, realpath'd once at construction, plus every `allowed_prefixes`
-entry, routed through `absolute_path_of` too) - so a symlinked project root
-or a symlinked `additionalAllowedPathPrefixes` entry does not produce a
-false denial.
+Two anchors for a relative path, named by WHOSE path it is (improvement-
+20261019-095449): `absolute_path_of_command_argument` resolves against the
+working directory (where the command runs - it follows Bash `cd`), and
+`absolute_path_of_config_entry` against the boundary root (a config entry's
+meaning must not depend on where the session happens to stand). Containment
+is always checked against the boundary.
+
+Both resolve symlinks (via the injected `realpath_predicate`, non-strict
+`os.path.realpath` in production) on top of the lexical join/expansion - the
+sole seam every path-boundary consumer shares, so redirect validation,
+`allowedCommands` argument-path validation, `PathsFilter`, and
+`decision_for_path` all resolve symlinks uniformly with no per-consumer
+change (improvement-20260918-185726). `is_contained` resolves BOTH sides of
+every containment check - the candidate (already realpath'd) and the
+boundary (realpath'd once at construction, plus every `allowed_prefixes`
+entry, routed through `absolute_path_of_config_entry`) - so a symlinked
+project root or a symlinked `additionalAllowedPathPrefixes` entry does not
+produce a false denial.
 
 TOCTOU: resolution happens once, at decision time, and the command executes
 afterward as a separate step - this is NOT atomic with execution. A symlink
@@ -43,14 +51,18 @@ import os
 class PathResolutionContext:
     def __init__(
         self,
-        cwd,
+        boundary,
+        working_directory=None,
         home=None,
         exists_predicate=None,
         is_directory_predicate=None,
         realpath_predicate=None,
     ):
         self._realpath = realpath_predicate or (lambda path: path)
-        self._cwd = self._realpath(cwd)
+        self._boundary = self._realpath(str(boundary))
+        self._working_directory = (
+            self._boundary if working_directory is None else self._realpath(str(working_directory))
+        )
         self._home = home
         self._exists = exists_predicate or (lambda path: False)
         self._is_directory = is_directory_predicate or (lambda path: False)
@@ -58,37 +70,31 @@ class PathResolutionContext:
     @classmethod
     def for_process(cls):
         return cls(
-            cwd=os.getcwd(),
+            boundary=os.getcwd(),
             home=os.path.expanduser("~"),
             exists_predicate=os.path.exists,
             is_directory_predicate=os.path.isdir,
             realpath_predicate=os.path.realpath,
         )
 
-    @classmethod
-    def for_project(cls):
-        """Like `for_process()`, but rooted at `CLAUDE_PROJECT_DIR` (falling
-        back to the process cwd) - the project-boundary root every
-        production consumer actually wants (was `Config._path_resolution()`
-        before construction-time binding moved it here)."""
-        return cls(
-            cwd=os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd()),
-            home=os.path.expanduser("~"),
-            exists_predicate=os.path.exists,
-            is_directory_predicate=os.path.isdir,
-            realpath_predicate=os.path.realpath,
-        )
+    def absolute_path_of_command_argument(self, value):
+        """A path written in a COMMAND (argument, redirect target, a
+        Read/Grep/Glob target) - relative to where the command runs."""
+        return self._realpath(self._lexical_absolute_path_of(value, anchor=self._working_directory))
 
-    def absolute_path_of(self, value):
-        return self._realpath(self._lexical_absolute_path_of(value))
+    def absolute_path_of_config_entry(self, value):
+        """A path written in the CONFIG (`paths` `exactly`, an allowedPaths
+        rule, an `additionalAllowedPathPrefixes` entry) - relative to the
+        boundary root, so its meaning does not drift with `cd`."""
+        return self._realpath(self._lexical_absolute_path_of(value, anchor=self._boundary))
 
-    def _lexical_absolute_path_of(self, value):
+    def _lexical_absolute_path_of(self, value, anchor):
         if value.startswith("~"):
             expanded = self._expand_home(value)
             return os.path.normpath(expanded)
         if value.startswith("/"):
             return os.path.normpath(value)
-        return os.path.normpath(os.path.join(self._cwd, value))
+        return os.path.normpath(os.path.join(anchor, value))
 
     def _expand_home(self, value):
         if self._home is None:
@@ -102,15 +108,15 @@ class PathResolutionContext:
         return self._is_directory(value)
 
     def is_contained(self, absolute_path, allowed_prefixes=()):
-        """Whether `absolute_path` sits inside this context's own root (its
-        `cwd`, treated as the project boundary - see config.py's
-        decision_for, which constructs this context rooted at
-        CLAUDE_PROJECT_DIR) or one of `allowed_prefixes`.
+        """Whether `absolute_path` sits inside this context's boundary (the
+        working tree the session is in - see workspace.py) or one of
+        `allowed_prefixes`. Never the working directory: a `cd` into a
+        subdirectory does not shrink the boundary.
 
         Guards against a near-miss sibling directory (`/home/user` must not
         admit `/home/username`) via the trailing-separator comparison.
         """
-        candidates = (self._cwd,) + tuple(self.absolute_path_of(prefix) for prefix in allowed_prefixes)
+        candidates = (self._boundary,) + tuple(self.absolute_path_of_config_entry(prefix) for prefix in allowed_prefixes)
         return any(_is_within(absolute_path, prefix) for prefix in candidates)
 
 

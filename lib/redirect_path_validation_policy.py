@@ -33,7 +33,7 @@ class RedirectPathValidationPolicy(Policy):
             if not target:
                 offending.append(target)
                 continue
-            absolute = self._path_resolution.absolute_path_of(target)
+            absolute = self._path_resolution.absolute_path_of_command_argument(target)
             if not self._path_resolution.is_contained(absolute, self._allowed_prefixes):
                 offending.append(target)
         return offending

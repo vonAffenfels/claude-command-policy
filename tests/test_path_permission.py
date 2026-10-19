@@ -10,8 +10,13 @@ from path_permission import decision_for
 from path_resolution import PathResolutionContext
 
 
-def _resolution(cwd="/project", is_directory=lambda path: False):
-    return PathResolutionContext(cwd=cwd, home="/home/user", is_directory_predicate=is_directory)
+def _resolution(boundary="/project", working_directory=None, is_directory=lambda path: False):
+    return PathResolutionContext(
+        boundary=boundary,
+        working_directory=working_directory,
+        home="/home/user",
+        is_directory_predicate=is_directory,
+    )
 
 
 def test_no_path_is_passthrough():
@@ -107,17 +112,17 @@ def test_tool_name_matching_is_case_insensitive():
     assert result.decision == "allow"
 
 
-def test_a_relative_target_resolves_against_the_injected_cwd():
-    config = PathConfig.from_entries([{"tools": "read", "path": "/project/doc.txt"}])
+def test_a_relative_target_resolves_against_the_working_directory():
+    config = PathConfig.from_entries([{"tools": "read", "path": "/project/sub/doc.txt"}])
 
-    result = decision_for("Read", "doc.txt", config, _resolution(cwd="/project"))
+    result = decision_for("Read", "doc.txt", config, _resolution(working_directory="/project/sub"))
 
     assert result.decision == "allow"
 
 
-def test_a_relative_rule_path_also_resolves_against_the_injected_cwd():
+def test_a_relative_rule_path_resolves_against_the_boundary_not_the_working_directory():
     config = PathConfig.from_entries([{"tools": "read", "path": "doc.txt"}])
+    resolution = _resolution(boundary="/project", working_directory="/project/sub")
 
-    result = decision_for("Read", "/project/doc.txt", config, _resolution(cwd="/project"))
-
-    assert result.decision == "allow"
+    assert decision_for("Read", "/project/doc.txt", config, resolution).decision == "allow"
+    assert decision_for("Read", "/project/sub/doc.txt", config, resolution).decision == "passthrough"

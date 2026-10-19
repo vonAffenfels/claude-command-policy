@@ -72,7 +72,6 @@ from __future__ import annotations
 
 import json
 
-from path_resolution import PathResolutionContext
 from permission_decision import PermissionDecision
 from proposal_validation import proposal_problems
 from reason import (
@@ -86,6 +85,7 @@ from reason import (
 )
 from reason_renderer import render
 from statement import Command
+from workspace import Workspace
 
 BYPASS_WRAPPER_PROGRAM = "bypass-policy"
 ADD_ALLOW_POLICY_PROGRAM = "add-allow-policy"
@@ -165,7 +165,7 @@ def _mentions_program(statement, program):
     return any(_mentions_program(child, program) for child in statement.sub_statements())
 
 
-def add_allow_policy_transform(statement, path_resolution=None):
+def add_allow_policy_transform(statement, path_resolution=None, project_config_file=None):
     """None when `add-allow-policy` is not invoked anywhere on this line.
     Otherwise `ask` for the one accepted grammar with a well-formed entry,
     `deny` (with an `AddAllowPolicyGrammarViolation` Reason) for any other
@@ -174,8 +174,9 @@ def add_allow_policy_transform(statement, path_resolution=None):
     problem) when the grammar is right but the entry itself has a static or
     described problem (improvement 20260925-120037): a human approving the
     dialog should never be asked to bless an entry that would never vouch
-    for anything. `path_resolution` defaults to the project context, mirroring
-    every other caller-optional context parameter in this package.
+    for anything. `path_resolution` and `project_config_file` (the file a
+    project-scope diff names) default to this session's `Workspace`,
+    mirroring every other caller-optional context parameter in this package.
     """
     if not _mentions_program(statement, ADD_ALLOW_POLICY_PROGRAM):
         return None
@@ -191,11 +192,11 @@ def add_allow_policy_transform(statement, path_resolution=None):
 
     scope, intent, entry_text = parsed
 
-    problems = proposal_problems(entry_text, scope, path_resolution or PathResolutionContext.for_project())
+    problems = proposal_problems(entry_text, scope, path_resolution or Workspace.of_this_session().path_resolution())
     if problems:
         return PermissionDecision.deny(tuple(AddAllowPolicyProposalInvalid(problem) for problem in problems))
 
-    diff = _entry_diff(scope, entry_text)
+    diff = _entry_diff(_displayed_config_file(scope, project_config_file), entry_text)
     reason = (
         f"PROPOSED command-policy config change ({scope} scope). Diff: {diff}. "
         f"Stated intent: {intent}. Approving this runs the write - nothing else changes."
@@ -271,7 +272,13 @@ def _classify_add_allow_invocation(arguments):
     return None, (scope, intent, entry_text)
 
 
-def _entry_diff(scope, entry_text):
+def _displayed_config_file(scope, project_config_file):
+    if scope == "user":
+        return "~/.claude/command-policy.json"
+    return str(project_config_file or Workspace.of_this_session().project_config_file())
+
+
+def _entry_diff(config_file, entry_text):
     stripped = entry_text.strip()
     if stripped.startswith("{"):
         try:
@@ -281,9 +288,4 @@ def _entry_diff(scope, entry_text):
     else:
         entry = stripped
 
-    config_file = (
-        "~/.claude/command-policy.json"
-        if scope == "user"
-        else "${CLAUDE_PROJECT_DIR}/.claude/command-policy.json"
-    )
     return json.dumps({"file": config_file, "add": {"allowedCommands": [entry]}})

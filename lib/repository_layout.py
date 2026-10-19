@@ -9,7 +9,7 @@ answers receive a layout instead of shelling out, so they are exercised with
 an in-memory layout and no `git` at all (tests/test_workspace.py).
 
 Both questions answer `None` outside a repository AND on any `git` failure
-(missing executable, a directory that does not exist): every caller treats
+(missing executable, a directory that does not exist, a timeout): every caller treats
 `None` as "not a repository" and falls back to the `CLAUDE_PROJECT_DIR`-based
 behaviour, so an absent `git` degrades instead of erroring.
 
@@ -28,6 +28,10 @@ from typing import Optional, Protocol
 # Set by git itself while running a git hook; they would answer for THAT
 # repository instead of for the directory actually asked about.
 _REPOSITORY_OVERRIDING_VARIABLES = ("GIT_DIR", "GIT_WORK_TREE", "GIT_COMMON_DIR")
+
+# Runs on every hook invocation; a hung git (e.g. a stalled network mount)
+# must degrade to "not a repository" rather than stall the hook.
+_GIT_TIMEOUT_SECONDS = 5
 
 
 class RepositoryLayout(Protocol):
@@ -67,8 +71,9 @@ class GitRepositoryLayout:
                 capture_output=True,
                 text=True,
                 env=environment,
+                timeout=_GIT_TIMEOUT_SECONDS,
             )
-        except OSError:
+        except (OSError, subprocess.SubprocessError):
             return None
         if result.returncode != 0:
             return None

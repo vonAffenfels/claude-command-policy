@@ -32,17 +32,18 @@ import os
 import sys
 from pathlib import Path
 
-from path_resolution import PathResolutionContext
 from proposal_validation import parse_entry, proposal_problems
+from workspace import Workspace
 
 
 def config_path(scope):
-    """The target config file for a proposal scope ('user' or 'project')."""
+    """The target config file for a proposal scope ('user' or 'project').
+    The project file is the one the hooks read - the MAIN repository's, even
+    when run from a linked worktree (workspace.py)."""
     if scope == "user":
         home = os.environ.get("HOME", "")
         return Path(home) / ".claude" / "command-policy.json"
-    project_dir = os.environ.get("CLAUDE_PROJECT_DIR", os.getcwd())
-    return Path(project_dir) / ".claude" / "command-policy.json"
+    return Workspace.of_this_session().project_config_file()
 
 
 def apply_proposal(scope, entry_text):
@@ -79,7 +80,7 @@ def main(argv):
         print("error: --intent must not be blank.", file=sys.stderr)
         return 2
 
-    problems = proposal_problems(args.entry, args.scope, PathResolutionContext.for_project())
+    problems = proposal_problems(args.entry, args.scope, Workspace.of_this_session().path_resolution())
     if problems:
         print("error: proposed entry is invalid - nothing was written:", file=sys.stderr)
         for problem in problems:

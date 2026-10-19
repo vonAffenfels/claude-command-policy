@@ -9,7 +9,7 @@ import json
 from path_resolution import PathResolutionContext
 from proposal_validation import parse_entry, proposal_problems
 
-CONTEXT = PathResolutionContext(cwd="/project")
+CONTEXT = PathResolutionContext(boundary="/project")
 
 
 def test_a_bare_program_name_has_no_problems():

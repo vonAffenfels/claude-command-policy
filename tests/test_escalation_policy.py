@@ -3,6 +3,8 @@ black-box decision spec suite (test_permission_decisions.py's Batch 5 covers
 the end-to-end behavioural contract through Config.decision_for).
 """
 
+from pathlib import Path
+
 from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_transform
 from permission_decision import PermissionDecision
 from reason import (
@@ -164,6 +166,15 @@ def test_add_allow_policy_transform_accepts_a_double_quoted_scope_value():
     assert result.decision == "ask"
     assert "user" in result.reason
     assert "rg" in result.reason
+
+
+def test_add_allow_policy_transform_names_the_resolved_project_config_file_for_project_scope():
+    statement = Statement.from_command("add-allow-policy --scope project --intent 'testing' 'rg'")
+
+    result = add_allow_policy_transform(statement, project_config_file=Path("/repo/.claude/command-policy.json"))
+
+    assert result.decision == "ask"
+    assert "/repo/.claude/command-policy.json" in result.reason
 
 
 def test_add_allow_policy_transform_forces_ask_regardless_of_flag_order():

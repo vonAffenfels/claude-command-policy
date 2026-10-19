@@ -18,7 +18,7 @@ FIXTURES = Path(__file__).parent / "fixtures" / "fake_parsers"
 
 
 def _policy(allowed_commands, command, path_resolution=None, allowed_prefixes=(), recurse=False):
-    resolution = path_resolution or PathResolutionContext(cwd="/project")
+    resolution = path_resolution or PathResolutionContext(boundary="/project")
     policy = AllowedCommandPolicy(
         [AllowedCommand.from_entry(e, resolution) for e in allowed_commands],
         resolution,
@@ -34,7 +34,7 @@ def _policy(allowed_commands, command, path_resolution=None, allowed_prefixes=()
 
 
 def test_pass_is_the_last_pass():
-    assert AllowedCommandPolicy([], PathResolutionContext(cwd="/project"), (), False, None, 0, 10).pass_ == (
+    assert AllowedCommandPolicy([], PathResolutionContext(boundary="/project"), (), False, None, 0, 10).pass_ == (
         Pass.ALLOWED_COMMAND
     )
 
@@ -430,7 +430,7 @@ def test_via_allowed_commands_recursion_is_depth_guarded():
 
     at_limit = AllowedCommandPolicy(
         allowed_commands,
-        PathResolutionContext(cwd="/project"),
+        PathResolutionContext(boundary="/project"),
         (),
         recurse_via_allowed_commands=True,
         evaluate_nested_text=lambda text, depth: (_ for _ in ()).throw(AssertionError("unused")),
