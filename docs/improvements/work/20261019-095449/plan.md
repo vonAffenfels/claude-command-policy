@@ -58,13 +58,28 @@ One edge-level value object owns "which repository/worktree is this session in",
 site listed under Context consumes it instead of re-deriving paths from `CLAUDE_PROJECT_DIR`/`getcwd()`. It answers two
 questions:
 
-- **Project config file** → `{main repository root}/.claude/command-policy.json`. Main repository root comes from `git`
-  (candidate: first `worktree` entry of `git worktree list --porcelain`; to be verified). Never the project dir's
-  subpath — always the main repository ROOT.
-- **Path-containment boundary** → the root of the worktree the session is working in (`git rev-parse --show-toplevel`
-  run from that worktree).
+- **Project config file** → `{main repository root}/.claude/command-policy.json`. Main repository root = first
+  `worktree ` line of `git -C <launch dir> worktree list --porcelain`, where launch dir = `CLAUDE_PROJECT_DIR`, else
+  `os.getcwd()` (the Bash-tool helpers, where `CLAUDE_PROJECT_DIR` is unset but cwd is inside the session's worktree).
+  Asked from the LAUNCH dir, never the current cwd: cwd follows Bash `cd`, and a `cd` into a nested independent repo
+  (e.g. a vendored checkout inside the boundary — allowed) would otherwise switch the session to that repo's policy.
+  Never the project dir's subpath — always the main repository ROOT.
+- **Path-containment boundary** → `git -C <process cwd> rev-parse --show-toplevel` (process cwd = hook stdin `cwd`;
+  measured identical). The worktree ROOT, so a `cd` into a subdirectory does not shrink it. Accepted only when that
+  worktree belongs to the SAME main repository as the config (same first `worktree list` entry); otherwise (a `cd` into
+  a nested independent repo or out of the repository via `bypass-policy`) the boundary falls back to the toplevel of the
+  launch dir.
+- **Relative-path base** → the process cwd. Today `PathResolutionContext._cwd` is BOTH the relative-path base and the
+  boundary (`lib/path_resolution.py:53,91,113`), and both are `CLAUDE_PROJECT_DIR`. Once the boundary is the worktree
+  root and cwd can be a subdirectory, these must be two separate fields: `cat ../x` after `cd docs` resolves against
+  `<worktree>/docs`, not against the worktree root. (Today's conflation only ever fails CLOSED — the real cwd is always
+  at or below the assumed one — but it gives false denials after `EnterWorktree`/`cd`.)
 
-Outside a git repository (or when `git` fails), both fall back to today's `CLAUDE_PROJECT_DIR`/cwd behaviour.
+Outside a git repository (`git` exit 128, or `git` missing/failing), all three fall back to today's
+`CLAUDE_PROJECT_DIR`/cwd behaviour.
+
+`git` runs as a subprocess on every hook invocation (two calls). Accepted per operator decision; the cost is to be
+noted, not optimised away by reading `.git` files.
 
 Rules stay database-free in the user's sense: `PathResolutionContext` already receives its root at construction, and the
 config loader already receives file paths — only the edge factories (`for_project()`, `load_config_from_environment()`,
@@ -72,19 +87,43 @@ config loader already receives file paths — only the edge factories (`for_proj
 
 ## Implementation Notes
 
+### Resolved during planning
+
+- Which directory to ask `git` from — measured (see Assumptions, `experiments/hook-cwd/`): config from the launch dir,
+  boundary from the process cwd, as described in Proposed Approach.
+- Session launched in a SUBDIRECTORY of the main checkout: the boundary becomes the repository root. Operator: "if you
+  are working inside a project then you actually want to work on that project." Monorepos with per-package rules are not
+  a current use case; explicitly out of scope.
+
 ### Open Questions
 
-- (To be discussed) Which directory to ask `git` from. For the config file, `CLAUDE_PROJECT_DIR` suffices (it lies in
-  the same repository in all three launch shapes). For the BOUNDARY after `EnterWorktree`, `CLAUDE_PROJECT_DIR` still
-  points at the main checkout, so the worktree must come from the session's cwd (hook stdin `cwd` field?). Unmeasured:
-  what that `cwd` holds after `EnterWorktree`, and after a Bash `cd` elsewhere — a `cd` into ANOTHER repository must not
-  switch the session to that repository's policy.
-- (To be discussed) Session launched in a SUBDIRECTORY of the main checkout: boundary becomes the repository root (wider
-  than today's subdirectory). Acceptable?
+- (To be discussed) Split of `PathResolutionContext._cwd` into relative-path base and boundary — confirm in scope.
+- (To be discussed) Boundary fallback when cwd sits in a nested independent repo / another repo: launch-dir toplevel
+  (proposed) vs. deny-everything.
 
 ## Assumptions
 
-- **Launched directly inside a linked worktree, hook processes get CLAUDE_PROJECT_DIR = the worktree and stdin cwd = the worktree; a Bash change-directory to /tmp does NOT change the cwd later hooks receive** — confirmed (experiments/hook-cwd/probe.sh B (headless haiku session with a logging PreToolUse hook): all four hook invocations, including those after the change-directory, logged stdin cwd, process PWD and CLAUDE_PROJECT_DIR = the worktree; raw log in experiments/hook-cwd/hook-input.log)
+- **Launched directly inside a linked worktree, hook processes get CLAUDE_PROJECT_DIR = the worktree and stdin cwd = the
+  worktree; a Bash change-directory to /tmp does NOT change the cwd later hooks receive** — refuted (First probe was
+  invalid: command-policy itself DENIED the change-directory to /tmp (PreToolUse logged, no PostToolUse), so it never
+  ran. Re-run B2 with an allowed change-directory into docs: every later hook got stdin cwd = <worktree>/docs. A Bash
+  change-directory DOES persist into the hook cwd. Launch values (CLAUDE_PROJECT_DIR = worktree, initial cwd = worktree)
+  do hold.)
+- **Launched in the main checkout then EnterWorktree: from then on hooks get stdin cwd = the new worktree and process
+  PWD = the new worktree, while CLAUDE_PROJECT_DIR stays the main checkout; ExitWorktree restores cwd to the main
+  checkout** — confirmed (experiments/hook-cwd/probe.sh A3 run by the operator from the main checkout: PostToolUse of
+  EnterWorktree and every later hook logged cwd = .claude/worktrees/hook-cwd-probe with CLAUDE_PROJECT_DIR = main
+  checkout; PostToolUse of ExitWorktree logged cwd = main checkout. Log: experiments/hook-cwd/hook-input.log)
+- **Hook stdin cwd follows Bash change-directory commands, so it can be a SUBDIRECTORY of the worktree (or, via
+  bypass-policy, somewhere outside it); the worktree root must be derived from it via git, never used raw** — confirmed
+  (experiments/hook-cwd/probe.sh B2: after an allowed change-directory into docs, PreToolUse/PostToolUse hooks logged
+  cwd = <worktree>/docs. A change-directory outside the boundary is denied by command-policy itself (A3, B: no
+  PostToolUse logged), so leaving the worktree needs a bypass-policy escalation.)
+- **The first worktree entry of the porcelain worktree listing is the main repository root, and show-toplevel is the
+  containing worktree root, for: main root, main subdir, linked worktree inside or outside the main checkout, and its
+  subdir. Both exit 128 outside a repository. A nested independent repo answers with ITSELF for both.** — confirmed
+  (experiments/git-commands/probe.sh against a throwaway repo in the session scratchpad (git 2.55.0); rerun the script
+  to reproduce)
 
 ## Design Decisions
 
