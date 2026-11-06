@@ -57,6 +57,29 @@ makes the line "not the wrapper", and the ordinary decision (deny) is returned u
 `as_sole_invoked_program()` rejecting substitutions, because the persisted entry/examples must be literal. That caller
 must keep today's behaviour.
 
+### Reframing (operator, 2026-11-06): should bypass analyse the wrapped command at all?
+
+The operator questioned the premise of `bypass_transform`'s re-analysis rather than its recognition gap:
+
+- `bypass-policy "$(rm -Rf /)"` runs `rm` outside the wrapper, but the operator sees the whole command line in Claude
+  Code's prompt; accepting it is an informed choice.
+- The categorical `ask` floor (blocked command, sensitive path, redirect outside the boundary) is trivially sidestepped,
+  e.g. `bypass-policy bash -c 'ROOT=/ ; rm -Rf $ROOT/.'` — so it is a best-effort floor, not a guarantee.
+- `bypass-policy` exists only as the workaround for a deny whose guidance toward an auto-allowed command did not pan
+  out. Anything other than `passthrough` is questionable for it.
+
+Measured context for this user: `~/.claude/settings.json` has `defaultMode: "default"` and NO rule auto-approving
+`bypass-policy`; no project settings exist. So today `passthrough` already ends in Claude Code's own prompt, and the
+forced `ask` differs from it observably only (a) in the reason text shown in the prompt and (b) under a permissive
+settings rule or permission mode — which the KB's original design names as the case it guards ("the worst outcome").
+Dropping the floor reverses that recorded design decision and requires rewriting the KB's outcome table and
+`bypass_transform` passage.
+
+### Open Questions
+
+- Bypass outcome model: (A) always `passthrough`, no re-analysis; (B) `allow` when the wrapped command is auto-allowed,
+  else `passthrough`; (C) keep allow/ask/passthrough and only fix recognition. (To be discussed)
+
 ## Implementation Notes
 
 ### Observed during exploration
@@ -68,4 +91,7 @@ must keep today's behaviour.
 
 ## Assumptions
 
-- **bypass_transform does not apply when the wrapped arguments contain a command or process substitution, because Statement.as_sole_invoked_program() returns None for any Command with sub_statements()** — confirmed (lib/statement.py:181; Config.decision_for on the live config: bypass-policy ls with a quoted command substitution -> deny, with a process substitution -> deny, with a quoted variable -> passthrough)
+- **bypass_transform does not apply when the wrapped arguments contain a command or process substitution, because
+  Statement.as_sole_invoked_program() returns None for any Command with sub_statements()** — confirmed
+  (lib/statement.py:181; Config.decision_for on the live config: bypass-policy ls with a quoted command substitution ->
+  deny, with a process substitution -> deny, with a quoted variable -> passthrough)
