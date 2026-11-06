@@ -36,11 +36,12 @@ def load_config(user_config_path, project_config_path, path_resolution=None):
     )
 
 
-def load_config_from_environment():
+def load_config_from_environment(scratchpad_directory=None):
     """The project layer is `Workspace`'s project config file - the MAIN
-    repository's, whichever worktree the session runs in (workspace.py)."""
+    repository's, whichever worktree the session runs in (workspace.py).
+    `scratchpad_directory` (from the hook's stdin) is forwarded to it."""
     home = Path(os.environ.get("HOME", ""))
-    workspace = Workspace.of_this_session()
+    workspace = Workspace.of_this_session(scratchpad_directory=scratchpad_directory)
 
     return load_config(
         home / USER_CONFIG_RELATIVE_PATH,

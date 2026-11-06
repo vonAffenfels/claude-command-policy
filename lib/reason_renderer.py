@@ -95,7 +95,7 @@ _CLAUSE_BUILDERS = {
     ),
     SensitiveVariableReferenced: lambda r: f"sensitive variable referenced: {r.name}",
     RedirectOutsideAllowedPaths: lambda r: (
-        f"redirect target outside the project/allowed prefixes: {r.target!r}"
+        f"redirect target outside the project, the session scratchpad and the allowed prefixes: {r.target!r}"
     ),
     ProgramNotAllowListed: lambda r: f"no allowedCommands entry vouches for: {r.program}",
     SubstitutedCommandNotAllowListed: lambda r: (
@@ -108,7 +108,7 @@ _CLAUSE_BUILDERS = {
         f"{r.program}: entry does not declare variable {r.variable!r}"
     ),
     ArgumentPathOutsideAllowedPaths: lambda r: (
-        f"{r.program}: argument path outside the project/allowed prefixes: {r.path!r}"
+        f"{r.program}: argument path outside the project, the session scratchpad and the allowed prefixes: {r.path!r}"
     ),
     UnknowablePathArgument: lambda r: (
         f"{r.program}: an argument whose value cannot be known at analysis time occupies a "

@@ -15,7 +15,7 @@ import sys
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lib"))
 
 from config_loader import load_config_from_environment
-from hook_envelopes import pretooluse_bash_response
+from hook_envelopes import pretooluse_bash_response, scratchpad_directory_from_hook_input
 
 
 def main():
@@ -28,7 +28,7 @@ def main():
     if not command:
         return 0
 
-    config = load_config_from_environment()
+    config = load_config_from_environment(scratchpad_directory=scratchpad_directory_from_hook_input(input_data))
     decision = config.decision_for(command)
     response = pretooluse_bash_response(decision)
     if response is not None:

@@ -491,3 +491,24 @@ def test_with_additional_warnings_appends_without_dropping_existing_warnings():
     combined = config.with_additional_warnings(config.described_problems(_FakeDescriber({})))
 
     assert len(combined.warnings()) == 1
+
+
+def test_explain_names_the_session_scratchpad_when_the_path_resolution_carries_one():
+    config = Config.from_dict(
+        {"allowedCommands": ["echo"]},
+        path_resolution=PathResolutionContext(boundary="/project", scratchpad_directory="/tmp/claude-1/x/s/scratchpad"),
+    )
+
+    assert "sessionScratchpad: /tmp/claude-1/x/s/scratchpad (treated like the project" in config.explain()
+
+
+def test_explain_has_no_scratchpad_line_without_a_scratchpad_directory():
+    config = Config.from_dict({"allowedCommands": ["echo"]}, path_resolution=PathResolutionContext(boundary="/project"))
+
+    assert "sessionScratchpad" not in config.explain()
+
+
+def test_explain_tells_no_parser_entries_that_the_session_scratchpad_is_an_allowed_location():
+    config = Config.from_dict({"allowedCommands": ["echo"]}, path_resolution=PathResolutionContext(boundary="/project"))
+
+    assert "inside the project, the session scratchpad, or an allowed prefix" in config.explain()

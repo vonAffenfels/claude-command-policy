@@ -120,6 +120,20 @@ def test_an_unprovable_filter_names_the_unknowable_content_and_the_decomposition
     assert "run the value-producing command first" in text
 
 
+def test_a_redirect_outside_the_allowed_paths_names_the_session_scratchpad_as_an_allowed_location():
+    text = render((RedirectOutsideAllowedPaths("/x/out.txt"),))
+
+    assert "outside the project, the session scratchpad and the allowed prefixes" in text
+    assert "/x/out.txt" in text
+
+
+def test_an_argument_path_outside_the_allowed_paths_names_the_session_scratchpad_as_an_allowed_location():
+    text = render((ArgumentPathOutsideAllowedPaths("cat", "/x/notes.txt"),))
+
+    assert "cat: argument path outside the project, the session scratchpad and the allowed prefixes" in text
+    assert "/x/notes.txt" in text
+
+
 def test_renders_every_reason_kind_without_crashing():
     """Not a wording pin for each - just proof every kind has a clause, so a
     newly-added Reason subtype that forgets to register with the renderer

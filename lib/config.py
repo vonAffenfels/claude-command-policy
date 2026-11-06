@@ -76,7 +76,7 @@ _ALLOWED_COMMANDS_HEADER = "\n".join(
         " result is unknown, so the command denies if that result lands where a path could be or where a rule must"
         " inspect it.",
         "[no parser] = the entry has no command parser, so every argument that looks like a path, options included, is"
-        " treated as one and must stay inside the project or an allowed prefix; such an entry therefore always denies"
+        " treated as one and must stay inside the project, the session scratchpad, or an allowed prefix; such an entry therefore always denies"
         " a $(...) argument.",
     )
 )
@@ -325,6 +325,9 @@ class Config:
         sections.append(self._sensitive_variables.explain())
         sections.append(self._explain_sensitive_paths())
         sections.append(self._allowed_path_prefixes.explain())
+        scratchpad_section = self._explain_session_scratchpad()
+        if scratchpad_section:
+            sections.append(scratchpad_section)
         sections.append(self._path_config.explain())
         sections.append(f"commandSubstitutionResponse: '{self._command_substitution_response}'")
         warnings_section = self._explain_warnings()
@@ -340,6 +343,12 @@ class Config:
         lines = [_ALLOWED_COMMANDS_HEADER]
         lines.extend(entry.explain() for entry in self._allowed_commands)
         return "\n".join(lines)
+
+    def _explain_session_scratchpad(self):
+        scratchpad_directory = self._path_resolution.scratchpad_directory()
+        if scratchpad_directory is None:
+            return ""
+        return f"sessionScratchpad: {scratchpad_directory} (treated like the project: paths inside it pass path checks)"
 
     def _explain_sensitive_paths(self):
         if not self._sensitive_paths:

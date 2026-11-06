@@ -505,6 +505,16 @@ project root or a symlinked allowed-prefix entry does not produce a false denial
   `EnterWorktree` all share ONE file; a worktree's own copy is ignored.
 - **Boundary** — the working tree root of the CWD (the worktree the session is actually in, matching what Claude Code
   enforces there), else the launch dir.
+- **Scratchpad** — the session's private scratch directory, a SECOND containment root beside the boundary. Its source is
+  Claude Code's own `scratchpad_dir` field in the hook's stdin (read in one function,
+  `hook_envelopes.scratchpad_directory_from_hook_input`) — not ambient state, so the hook entrypoints pass it into
+  `Workspace.of_this_session(scratchpad_directory=...)` explicitly. It is a containment root, never an anchor: relative
+  paths still resolve against the cwd / the boundary. Absent, null (headless `claude -p`), empty or relative means no
+  scratchpad and exactly the boundary-only behaviour. It is deliberately neither re-derived from the on-disk layout
+  (undocumented, version-dependent, the launch-dir slug differs from the transcript's inside a worktree) nor injected as
+  an `additionalAllowedPathPrefixes` entry (that mixes a per-session fact into config, and a broad `/tmp/claude-{uid}`
+  prefix would admit every other session's scratchpad). Read/Grep/Glob never consult the boundary, so they are
+  unaffected.
 - **Outside git, or `git` missing/failing/timing out** — both fall back to the launch dir.
 
 `git` is asked, never inferred from `.git`/`gitdir` files — `GitRepositoryLayout` (`repository_layout.py`) is the only

@@ -117,8 +117,8 @@ class DisallowedVariableReferenced:
 @dataclass(frozen=True)
 class ArgumentPathOutsideAllowedPaths:
     """CASE B: the matched entry does not set `hasNoPathParameters` and one
-    of this invocation's own argument paths resolves outside the project/
-    allowed prefixes."""
+    of this invocation's own argument paths resolves outside the project,
+    the session scratchpad and the allowed prefixes."""
 
     program: str
     path: str

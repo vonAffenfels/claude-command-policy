@@ -12,6 +12,7 @@ from hook_envelopes import (
     path_from_tool_input,
     pretooluse_bash_response,
     pretooluse_path_response,
+    scratchpad_directory_from_hook_input,
     subagent_start_envelope,
     touches_config_path,
 )
@@ -139,3 +140,19 @@ def test_path_from_tool_input_is_case_insensitive_on_tool_name():
 
 def test_path_from_tool_input_handles_a_missing_tool_input():
     assert path_from_tool_input("Read", None) is None
+
+
+def test_scratchpad_directory_from_hook_input_returns_an_absolute_path():
+    assert scratchpad_directory_from_hook_input({"scratchpad_dir": "/tmp/claude-1/x/s/scratchpad"}) == (
+        "/tmp/claude-1/x/s/scratchpad"
+    )
+
+
+def test_scratchpad_directory_from_hook_input_is_none_unless_a_non_empty_absolute_path_string():
+    assert scratchpad_directory_from_hook_input({}) is None
+    assert scratchpad_directory_from_hook_input({"scratchpad_dir": None}) is None
+    assert scratchpad_directory_from_hook_input({"scratchpad_dir": ""}) is None
+    assert scratchpad_directory_from_hook_input({"scratchpad_dir": "relative/scratchpad"}) is None
+    assert scratchpad_directory_from_hook_input({"scratchpad_dir": 42}) is None
+    assert scratchpad_directory_from_hook_input(None) is None
+    assert scratchpad_directory_from_hook_input(["not", "a", "dict"]) is None

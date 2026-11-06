@@ -17,6 +17,7 @@ response says it lacks) is visible here too, not only for a filtered
 command/-analyze-path) never construct one.
 """
 
+import json
 import os
 import sys
 
@@ -24,11 +25,15 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 
 from config_loader import load_config_from_environment
 from describer import Describer
+from hook_envelopes import scratchpad_directory_from_hook_input
 
 
 def main():
-    sys.stdin.read()
-    config = load_config_from_environment()
+    try:
+        input_data = json.loads(sys.stdin.read())
+    except json.JSONDecodeError:
+        input_data = None
+    config = load_config_from_environment(scratchpad_directory=scratchpad_directory_from_hook_input(input_data))
     config = config.with_additional_warnings(config.described_problems(Describer()))
     print(config.explain())
     return 0

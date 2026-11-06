@@ -85,6 +85,20 @@ def _reason_text(reason):
     return render(reason)
 
 
+def scratchpad_directory_from_hook_input(input_data):
+    """The session's scratchpad directory from a hook payload's
+    `scratchpad_dir` - the one place that field is read. None unless it is a
+    non-empty absolute path string (disabled scratchpad, headless `claude
+    -p` sending null, cloud calls, malformed payloads all mean "no
+    scratchpad")."""
+    if not isinstance(input_data, dict):
+        return None
+    value = input_data.get("scratchpad_dir")
+    if isinstance(value, str) and value.startswith("/"):
+        return value
+    return None
+
+
 def path_from_tool_input(tool_name, tool_input):
     """Read's own `file_path` vs Grep/Glob's `path` key split - mirrors
     shfmt-permissions' analyze-path.py `extract_path_from_hook_input`."""

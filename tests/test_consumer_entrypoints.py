@@ -336,6 +336,72 @@ def test_analyze_bash_command_launched_in_a_worktree_applies_the_main_checkouts_
     assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == "allow"
 
 
+def _decision_with_scratchpad(run_entrypoint, env, scratchpad, command):
+    payload = {"tool_input": {"command": command}}
+    if scratchpad is not None:
+        payload["scratchpad_dir"] = str(scratchpad)
+    result = run_entrypoint("command-policy-analyze-bash-command", stdin=json.dumps(payload), env=env)
+    assert result.returncode == 0, result.stderr
+    return json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"]
+
+
+def test_analyze_bash_command_allows_a_path_in_the_scratchpad_the_hook_input_names(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["ls"]})
+    scratchpad = tmp_path / "scratchpad"
+
+    assert _decision_with_scratchpad(run_entrypoint, env, scratchpad, f"ls {scratchpad}/notes.txt") == "allow"
+    assert _decision_with_scratchpad(run_entrypoint, env, None, f"ls {scratchpad}/notes.txt") == "deny"
+
+
+def test_analyze_bash_command_allows_a_redirect_into_the_scratchpad(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["echo"]})
+    scratchpad = tmp_path / "scratchpad"
+
+    assert _decision_with_scratchpad(run_entrypoint, env, scratchpad, f"echo hi > {scratchpad}/out.txt") == "allow"
+    assert _decision_with_scratchpad(run_entrypoint, env, None, f"echo hi > {scratchpad}/out.txt") == "deny"
+
+
+def test_analyze_bash_command_denies_a_sibling_of_the_scratchpad(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["ls"]})
+    scratchpad = tmp_path / "scratchpad"
+
+    assert _decision_with_scratchpad(run_entrypoint, env, scratchpad, f"ls {tmp_path}/scratchpad-other/x") == "deny"
+
+
+def test_session_start_renderer_names_the_scratchpad_from_the_hook_input(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["echo"]})
+    scratchpad = tmp_path / "scratchpad"
+
+    result = run_entrypoint(
+        "command-policy-render-session-start", stdin=json.dumps({"scratchpad_dir": str(scratchpad)}), env=env
+    )
+
+    assert result.returncode == 0
+    assert f"sessionScratchpad: {scratchpad}" in result.stdout
+
+
+def test_subagent_start_renderer_names_the_scratchpad_from_the_hook_input(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["echo"]})
+    scratchpad = tmp_path / "scratchpad"
+
+    result = run_entrypoint(
+        "command-policy-render-subagent-start", stdin=json.dumps({"scratchpad_dir": str(scratchpad)}), env=env
+    )
+
+    context = json.loads(result.stdout)["hookSpecificOutput"]["additionalContext"]
+    assert f"sessionScratchpad: {scratchpad}" in context
+
+
+def test_renderers_without_a_scratchpad_or_with_malformed_stdin_still_render_without_the_line(tmp_path, run_entrypoint):
+    env, _, _ = _config_environment(tmp_path, user_config={"allowedCommands": ["echo"]})
+
+    for stdin in ("{}", "not json", '{"scratchpad_dir": null}'):
+        result = run_entrypoint("command-policy-render-session-start", stdin=stdin, env=env)
+        assert result.returncode == 0, result.stderr
+        assert "echo" in result.stdout
+        assert "sessionScratchpad" not in result.stdout
+
+
 def test_analyze_bash_command_after_entering_a_worktree_bounds_paths_to_that_worktree(
     tmp_path, run_entrypoint, repository_with_linked_worktree
 ):
