@@ -63,6 +63,15 @@ hook stdin {"scratchpad_dir": "/tmp/claude-1001/.../scratchpad", ...}
    `sessionScratchpad: /tmp/claude-1001/.../scratchpad (treated like the project: paths inside it pass path checks)`.
    The `[no parser]` header text (`config.py` `_ALLOWED_COMMANDS_HEADER`) changes "inside the project or an allowed
    prefix" to "inside the project, the session scratchpad, or an allowed prefix".
+7. The two containment denial clauses in `lib/reason_renderer.py` (`RedirectOutsideAllowedPaths`,
+   `ArgumentPathOutsideAllowedPaths`) name the scratchpad as an allowed location, with STATIC wording:
+   - `redirect target outside the project, the session scratchpad and the allowed prefixes: '<target>'`
+   - `<program>: argument path outside the project, the session scratchpad and the allowed prefixes: '<path>'`
+
+   Static, not session-dependent (Design Decision "How the denial names the scratchpad"): the clause tells the caller
+   where a path WOULD pass, which is routing information (the hint is load-bearing). The caller already knows its own
+   scratchpad path from its system prompt; the renderer stays a pure function of the Reason's facts and gets no session
+   context.
 
 Absent / empty / relative / non-string `scratchpad_dir` → no scratchpad root → exactly today's behaviour (deny+hint for
 paths there; never a block). Both containment consumers — `allowed_command_policy._first_path_outside_allowed_prefixes`
@@ -80,6 +89,9 @@ scratchpad access for those tools).
 - `lib/config_loader.py` — `load_config_from_environment(scratchpad_directory=None)`.
 - `lib/hook_envelopes.py` — `scratchpad_directory_from_hook_input(input_data)`.
 - `lib/config.py` — `explain()` scratchpad line; `_ALLOWED_COMMANDS_HEADER` wording.
+- `lib/reason_renderer.py` — `_CLAUSE_BUILDERS` entries for `RedirectOutsideAllowedPaths` (line ~98) and
+  `ArgumentPathOutsideAllowedPaths` (line ~111). Docstring-only mentions of the old wording, updated alongside:
+  `bin/bypass-policy:8`, `lib/escalation_policy.py:33`. No test asserts the old exact text (grep of `tests/`).
 - `bin/command-policy-analyze-bash-command`, `bin/command-policy-render-session-start`,
   `bin/command-policy-render-subagent-start` — read the field, pass it to `load_config_from_environment`. The two
   renderers currently discard stdin (`sys.stdin.read()`); they now parse it (malformed JSON → no scratchpad, still
@@ -107,9 +119,6 @@ scratchpad access for those tools).
     path passes the hook-side check (`ask`) but would fail the write side's re-check. Rare; accepted.
     `CLAUDE_CODE_SESSION_ID` is in the Bash env, but rebuilding the path from it is exactly the layout re-derivation
     rejected above.
-  - The denial texts "argument path outside the project/allowed prefixes" / "redirect target outside the project/allowed
-    prefixes" (`lib/reason_renderer.py:98,111`) do not mention the scratchpad. Left unchanged: the reason renderer has
-    no session context, and the SessionStart text already tells the session about the scratchpad.
 
 ## Test Architecture
 
@@ -125,6 +134,8 @@ fixture (`tests/conftest.py`, used by `tests/test_consumer_entrypoints.py`).
   `test_without_a_scratchpad_directory_only_the_boundary_contains` (in-memory layout, as today).
 - `tests/test_hook_envelopes.py` — `scratchpad_directory_from_hook_input`: absolute → returned; absent, JSON `null`
   (what a headless `claude -p` session sends — measured), empty, relative, non-string → `None`.
+- `tests/test_reason_renderer.py` — `RedirectOutsideAllowedPaths` and `ArgumentPathOutsideAllowedPaths` render a clause
+  naming "the session scratchpad" next to the project and the allowed prefixes, plus the offending path.
 - `tests/test_config.py` — `explain()` renders the scratchpad line when the injected `PathResolutionContext` carries
   one, and no such line when it does not.
 - `tests/test_consumer_entrypoints.py` (end-to-end through the real hook):
@@ -206,6 +217,19 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
   mixes a per-session fact into config, and `explain()` / rendered rules would show it as if someone had configured it.
 - **Date:** 2026-11-06
 
+### How the denial names the scratchpad
+
+- **Chosen:** static wording in both containment clauses — "outside the project, the session scratchpad and the allowed
+  prefixes".
+- **Rationale:** operator asked for the denial message to mention the scratchpad ("Please include the mention in the
+  denial message"). Static wording chosen while planning: the renderer stays a pure function of the Reason's facts, and
+  the caller already knows its scratchpad path from its own system prompt.
+- **Rejected alternatives:** carrying the actual scratchpad path as a fact on `RedirectOutsideAllowedPaths` /
+  `ArgumentPathOutsideAllowedPaths` and printing it (session context would have to reach Policy construction just for
+  display, and the clause gets long); mentioning it only when the session has a scratchpad (same plumbing cost, for the
+  rare headless case).
+- **Date:** 2026-11-06
+
 ## Success Criteria
 
 - With the plugin installed, `ls <scratchpad>/x`, `cat <scratchpad>/x` and `echo hi > <scratchpad>/x` are auto-allowed
@@ -214,6 +238,7 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
 - A hook payload without `scratchpad_dir` (disabled scratchpad, cloud/served call, malformed stdin) decides exactly as
   today.
 - The SessionStart/SubagentStart rendered rules name the session scratchpad.
+- The argument-path and redirect-target denial messages name the session scratchpad as an allowed location.
 - Read/Grep/Glob behaviour is unchanged.
 - `cd tests && nix-shell --run pytest` passes; version bumped to 0.10.0 in both manifests in the same commit.
 
@@ -228,6 +253,9 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
       in `tests/test_consumer_entrypoints.py`
 - [ ] Rendering: `sessionScratchpad:` line and `[no parser]` header wording in `lib/config.py` (`explain()`,
       `_ALLOWED_COMMANDS_HEADER`), tests in `tests/test_config.py`
+- [ ] Denial wording: `RedirectOutsideAllowedPaths` / `ArgumentPathOutsideAllowedPaths` clauses in
+      `lib/reason_renderer.py` name the session scratchpad; tests in `tests/test_reason_renderer.py`; docstring mentions
+      in `bin/bypass-policy` and `lib/escalation_policy.py`
 - [ ] Renderers parse stdin and pass the field: `bin/command-policy-render-session-start`,
       `bin/command-policy-render-subagent-start`; tests in `tests/test_consumer_entrypoints.py`
 - [ ] Knowledgebase: Scratchpad bullet in the `Workspace` section of
