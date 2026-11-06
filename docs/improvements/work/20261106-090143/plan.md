@@ -3,11 +3,12 @@
 ## Meta
 
 - Related Ticket: None
-- Status: ready-to-implement
+- Status: in-progress
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T09:01:49+01:00
 - Plan finished: 2026-11-06T10:49:01+01:00
+- Impl started: 2026-11-06T11:01:46+01:00
 - Merge target: main
 
 ## This Improvement's Objective
