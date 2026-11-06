@@ -138,6 +138,51 @@ def test_is_contained_resolves_an_allowed_prefix_through_the_injected_realpath_p
     assert context.is_contained("/real/target/file.txt", allowed_prefixes=["/link/target"]) is True
 
 
+SCRATCHPAD = "/tmp/claude-1/x/s1/scratchpad"
+
+
+def test_is_contained_admits_a_path_under_the_scratchpad_directory():
+    context = PathResolutionContext(boundary="/repo", scratchpad_directory=SCRATCHPAD)
+
+    assert context.is_contained(SCRATCHPAD) is True
+    assert context.is_contained(SCRATCHPAD + "/notes.txt") is True
+
+
+def test_is_contained_rejects_another_sessions_scratchpad_and_a_longer_sibling():
+    context = PathResolutionContext(boundary="/repo", scratchpad_directory=SCRATCHPAD)
+
+    assert context.is_contained("/tmp/claude-1/x/s2/scratchpad/notes.txt") is False
+    assert context.is_contained(SCRATCHPAD + "-other/x") is False
+
+
+def test_is_contained_rejects_the_scratchpad_path_without_a_scratchpad_directory():
+    context = PathResolutionContext(boundary="/repo")
+
+    assert context.is_contained(SCRATCHPAD + "/notes.txt") is False
+
+
+def test_is_contained_resolves_the_scratchpad_directory_through_the_injected_realpath_predicate():
+    context = PathResolutionContext(
+        boundary="/repo",
+        scratchpad_directory="/tmp/sp",
+        realpath_predicate=lambda path: path.replace("/tmp", "/private/tmp", 1) if path.startswith("/tmp") else path,
+    )
+
+    assert context.is_contained("/private/tmp/sp/notes.txt") is True
+
+
+def test_a_relative_command_argument_never_resolves_against_the_scratchpad_directory():
+    context = PathResolutionContext(boundary="/repo", scratchpad_directory=SCRATCHPAD)
+
+    assert context.absolute_path_of_command_argument("notes.txt") == "/repo/notes.txt"
+    assert context.absolute_path_of_config_entry("notes.txt") == "/repo/notes.txt"
+
+
+def test_it_exposes_the_scratchpad_directory_it_was_given_or_none():
+    assert PathResolutionContext(boundary="/repo", scratchpad_directory=SCRATCHPAD).scratchpad_directory() == SCRATCHPAD
+    assert PathResolutionContext(boundary="/repo").scratchpad_directory() is None
+
+
 def test_for_process_anchors_both_at_the_process_cwd(monkeypatch, tmp_path):
     monkeypatch.chdir(tmp_path)
 

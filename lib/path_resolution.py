@@ -14,7 +14,10 @@ Two anchors for a relative path, named by WHOSE path it is (improvement-
 working directory (where the command runs - it follows Bash `cd`), and
 `absolute_path_of_config_entry` against the boundary root (a config entry's
 meaning must not depend on where the session happens to stand). Containment
-is always checked against the boundary.
+is checked against the boundary and, when the session has one, its
+scratchpad directory (improvement-20261106-122320): a second "inside the
+project" root supplied by the hook entrypoint, never an anchor for relative
+paths.
 
 Both resolve symlinks (via the injected `realpath_predicate`, non-strict
 `os.path.realpath` in production) on top of the lexical join/expansion - the
@@ -57,9 +60,13 @@ class PathResolutionContext:
         exists_predicate=None,
         is_directory_predicate=None,
         realpath_predicate=None,
+        scratchpad_directory=None,
     ):
         self._realpath = realpath_predicate or (lambda path: path)
         self._boundary = self._realpath(str(boundary))
+        self._scratchpad_directory = (
+            None if scratchpad_directory is None else self._realpath(str(scratchpad_directory))
+        )
         self._working_directory = (
             self._boundary if working_directory is None else self._realpath(str(working_directory))
         )
@@ -101,6 +108,10 @@ class PathResolutionContext:
             return value
         return self._home + value[1:] if value == "~" or value.startswith("~/") else value
 
+    def scratchpad_directory(self):
+        """The session's scratchpad (realpath'd), or None when it has none."""
+        return self._scratchpad_directory
+
     def exists(self, value):
         return self._exists(value)
 
@@ -109,14 +120,16 @@ class PathResolutionContext:
 
     def is_contained(self, absolute_path, allowed_prefixes=()):
         """Whether `absolute_path` sits inside this context's boundary (the
-        working tree the session is in - see workspace.py) or one of
-        `allowed_prefixes`. Never the working directory: a `cd` into a
-        subdirectory does not shrink the boundary.
+        working tree the session is in - see workspace.py), the session's
+        scratchpad directory (a second containment root, never an anchor for
+        relative paths), or one of `allowed_prefixes`. Never the working
+        directory: a `cd` into a subdirectory does not shrink the boundary.
 
         Guards against a near-miss sibling directory (`/home/user` must not
         admit `/home/username`) via the trailing-separator comparison.
         """
-        candidates = (self._boundary,) + tuple(self.absolute_path_of_config_entry(prefix) for prefix in allowed_prefixes)
+        roots = (self._boundary,) if self._scratchpad_directory is None else (self._boundary, self._scratchpad_directory)
+        candidates = roots + tuple(self.absolute_path_of_config_entry(prefix) for prefix in allowed_prefixes)
         return any(_is_within(absolute_path, prefix) for prefix in candidates)
 
 

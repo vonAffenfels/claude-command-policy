@@ -20,6 +20,9 @@ launched directly in a linked worktree, or moved into one by
   Claude Code itself enforces inside a worktree.
 - **Working directory** - where commands run; relative command arguments
   resolve against it (see path_resolution.py).
+- **Scratchpad** - the session's private scratch directory, handed over by
+  Claude Code in the hook's stdin (`scratchpad_dir`). A second containment
+  root beside the boundary, never an anchor; absent -> boundary only.
 
 Outside a git repository (or with `git` missing or failing) both fall back
 to the launch directory - the pre-worktree `CLAUDE_PROJECT_DIR` behaviour.
@@ -49,21 +52,26 @@ PROJECT_CONFIG_RELATIVE_PATH = Path(".claude") / "command-policy.json"
 
 
 class Workspace:
-    def __init__(self, launch_directory, working_directory, repository_layout):
+    def __init__(self, launch_directory, working_directory, repository_layout, scratchpad_directory=None):
         self._launch_directory = Path(launch_directory)
         self._working_directory = Path(working_directory)
         self._repository_layout = repository_layout
+        self._scratchpad_directory = scratchpad_directory
 
     @classmethod
-    def of_this_session(cls):
+    def of_this_session(cls, scratchpad_directory=None):
         """Launch directory = `CLAUDE_PROJECT_DIR`, else the process cwd -
         the Bash-tool helpers (`add-allow-policy`, `migrate-config`) run
-        without `CLAUDE_PROJECT_DIR`, but inside the session's worktree."""
+        without `CLAUDE_PROJECT_DIR`, but inside the session's worktree.
+
+        The scratchpad is NOT ambient state: it arrives in the hook's stdin,
+        so the hook entrypoint passes it in explicitly."""
         working_directory = os.getcwd()
         return cls(
             launch_directory=os.environ.get("CLAUDE_PROJECT_DIR") or working_directory,
             working_directory=working_directory,
             repository_layout=GitRepositoryLayout(),
+            scratchpad_directory=scratchpad_directory,
         )
 
     def project_root(self):
@@ -86,4 +94,5 @@ class Workspace:
             exists_predicate=os.path.exists,
             is_directory_predicate=os.path.isdir,
             realpath_predicate=realpath_predicate,
+            scratchpad_directory=self._scratchpad_directory,
         )

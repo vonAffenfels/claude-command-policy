@@ -127,6 +127,28 @@ def test_its_path_resolution_resolves_command_arguments_against_the_working_dire
     assert resolution.absolute_path_of_config_entry("notes.txt") == "/repo/.claude/worktrees/wt/notes.txt"
 
 
+def test_its_path_resolution_contains_the_scratchpad_directory_it_was_given():
+    session = Workspace(
+        launch_directory="/repo",
+        working_directory="/repo",
+        repository_layout=LAYOUT,
+        scratchpad_directory="/tmp/claude-1/x/s1/scratchpad",
+    )
+
+    resolution = session.path_resolution(realpath_predicate=lambda path: path)
+
+    assert resolution.is_contained("/tmp/claude-1/x/s1/scratchpad/notes.txt") is True
+
+
+def test_without_a_scratchpad_directory_only_the_boundary_contains():
+    session = workspace("/repo", "/repo")
+
+    resolution = session.path_resolution(realpath_predicate=lambda path: path)
+
+    assert resolution.is_contained("/tmp/claude-1/x/s1/scratchpad/notes.txt") is False
+    assert resolution.scratchpad_directory() is None
+
+
 def test_of_this_session_reads_the_launch_directory_from_claude_project_dir(monkeypatch, repository_with_linked_worktree):
     layout = repository_with_linked_worktree
     monkeypatch.setenv("CLAUDE_PROJECT_DIR", str(layout.worktree))
