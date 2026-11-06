@@ -102,17 +102,22 @@ PASSTHROUGH_REASON = (
 )
 
 
-def bypass_transform(statement, ordinary_decision, decide_wrapped_text):
+def bypass_transform(statement, ordinary_decision, decide_wrapped_text, command_text=None):
     """None when `statement` is not exactly `bypass-policy` and nothing
     else - the caller should use `ordinary_decision` unmodified. Otherwise
     the transformed PermissionDecision (allow/ask/passthrough - this
     transformer never itself produces `deny`, per the escalation's whole
     purpose).
+
+    The wrapped command is re-analysed from its own SOURCE TEXT inside
+    `command_text` (what the shell will hand `execvp`), so a quoted `;`/`>`
+    stays one argument and `$X` stays unknowable. Without `command_text` the
+    arguments' literal texts are joined instead - quoting is lost.
     """
     if statement.as_sole_invoked_program() != BYPASS_WRAPPER_PROGRAM:
         return None
 
-    wrapped_text = " ".join(argument.text for argument in statement.arguments())
+    wrapped_text = _wrapped_source_text(statement, command_text)
     inner_decision = decide_wrapped_text(wrapped_text) if wrapped_text else PermissionDecision.allow()
 
     outer_shell_reasons = tuple(
@@ -131,6 +136,14 @@ def bypass_transform(statement, ordinary_decision, decide_wrapped_text):
             "waived by the wrapper - it surfaces to you rather than dead-ending as a denial."
         )
     return PermissionDecision.passthrough(PASSTHROUGH_REASON)
+
+
+def _wrapped_source_text(statement, command_text):
+    if command_text is not None:
+        source_text = statement.arguments_source_text(command_text)
+        if source_text is not None:
+            return source_text
+    return " ".join(argument.text for argument in statement.arguments())
 
 
 def bypass_chain_hint(statement, ordinary_decision):

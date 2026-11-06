@@ -55,6 +55,22 @@ def test_bypass_transform_forces_ask_for_a_blocked_command():
     assert "rm" in result.reason
 
 
+def test_bypass_transform_re_analyses_the_wrapped_source_text_keeping_quotes_and_variables():
+    command = 'bypass-policy cat "a; b" "$X"'
+    statement = Statement.from_command(command)
+    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
+    analysed = []
+
+    bypass_transform(
+        statement,
+        ordinary,
+        lambda text: analysed.append(text) or PermissionDecision.allow(),
+        command_text=command,
+    )
+
+    assert analysed == ['cat "a; b" "$X"']
+
+
 def test_bypass_transform_does_not_call_decide_wrapped_text_when_there_are_no_arguments():
     statement = Statement.from_command("bypass-policy")
     ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))

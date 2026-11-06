@@ -603,6 +603,30 @@ class TestWithHeredocNormalizedToLit:
         assert any(isinstance(s, CmdSubst) for s in _all_nested(normalized))
 
 
+class TestCommandArgumentsSourceText:
+    """`Command.arguments_source_text(command)`: the slice of the original
+    command the arguments occupy, quoting and unknowable content intact."""
+
+    def test_keeps_quoting_and_variables_exactly_as_written(self):
+        command = 'bypass-policy echo "a; rm x" $X'
+
+        statement = Statement.from_command(command)
+
+        assert statement.arguments_source_text(command) == 'echo "a; rm x" $X'
+
+    def test_counts_offsets_in_bytes_not_characters(self):
+        command = 'bypass-policy echo "ä" b'
+
+        statement = Statement.from_command(command)
+
+        assert statement.arguments_source_text(command) == 'echo "ä" b'
+
+    def test_is_empty_for_a_command_with_no_arguments(self):
+        statement = Statement.from_command("echo")
+
+        assert statement.arguments_source_text("echo") == ""
+
+
 class TestCommandArguments:
     """`Command.arguments()`: the raw material leaf 20260914-213652's
     policy pipeline feeds to a Parser and its substitution-unknowability

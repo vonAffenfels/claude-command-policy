@@ -366,6 +366,7 @@ class Config:
             statement,
             ordinary,
             lambda text: self._decision_for_text(text, 0, max_nested_depth),
+            command_text=command,
         )
         if bypass is not None:
             return bypass
