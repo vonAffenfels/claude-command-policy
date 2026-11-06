@@ -3,7 +3,7 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-review
+- Status: completed
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T11:26:00+01:00
@@ -314,4 +314,4 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
 - [x] Bump version 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
       the behaviour change)
 - [x] Full suite green: `cd tests && nix-shell --run pytest`
-- [ ] Update status to completed
+- [x] Update status to completed
