@@ -68,10 +68,19 @@ _DECOMPOSITION_ADVISORY = (
 # DURABLE escalation route unconditionally, not only after a denial routes it
 # to the find-auto-allowed-command agent - so it reaches SessionStart/
 # SubagentStart directly too, where a session can offer it proactively.
-_ADD_ALLOW_POLICY_ADVISORY = (
-    f"To propose a durable allow-listed command shape (rather than a one-off bypass-policy escalation), use "
-    f'add-allow-policy in its canonical form: {ADD_ALLOW_POLICY_CANONICAL_FORM}\n'
-    "See command-policy:config for the schema an allowedCommands entry can express."
+_ESCALATION_ADVISORY = (
+    "ESCALATION - when no auto-allowed command does the job:\n"
+    "- Do not ask the operator to run a command (no \"please run !cmd\"). Run it yourself as "
+    "bypass-policy <program> [args...] - this tells command-policy you know no entry allows it; Claude Code's own "
+    "permission rules then decide.\n"
+    "- Before starting a task that will need many bypass-policy calls of the same shape, propose ONE durable rule "
+    f"first: {ADD_ALLOW_POLICY_CANONICAL_FORM}\n"
+    "- When a session needed many bypasses or workarounds that one rule would have collapsed, propose that rule as "
+    "the LAST step, after the task itself is done.\n"
+    "- If your work is handed on afterwards (to an operator, an orchestrator, a parent agent), do not run "
+    "add-allow-policy: put the exact command in your hand-off instead.\n"
+    "Load command-policy:config before writing an entry - an entry is a program name or a JSON object, never a "
+    "command line; each --example must be a real command the entry allows."
 )
 
 
@@ -308,7 +317,7 @@ class Config:
         warnings_section = self._explain_warnings()
         if warnings_section:
             sections.append(warnings_section)
-        sections.append(_ADD_ALLOW_POLICY_ADVISORY)
+        sections.append(_ESCALATION_ADVISORY)
         sections.append(_DECOMPOSITION_ADVISORY)
         return "\n\n".join(sections)
 

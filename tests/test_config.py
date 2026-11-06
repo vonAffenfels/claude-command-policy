@@ -11,6 +11,7 @@ from config import Config
 from layer_presence import LayerPresence
 from parser_description import ParserDescription
 from path_resolution import PathResolutionContext
+from reason_renderer import ADD_ALLOW_POLICY_CANONICAL_FORM
 from sensitive_path import SensitivePath
 
 
@@ -317,6 +318,20 @@ def test_explain_carries_the_add_allow_policy_advisory_even_for_an_empty_config(
 
     assert "add-allow-policy" in explanation
     assert "command-policy:config" in explanation
+
+
+def test_explain_carries_all_four_escalation_triggers_even_for_an_empty_config():
+    explanation = Config.defaults().explain()
+
+    assert "ESCALATION - when no auto-allowed command does the job" in explanation
+    assert "Run it yourself as bypass-policy <program>" in explanation
+    assert "Before starting a task that will need many bypass-policy calls" in explanation
+    assert "as the LAST step" in explanation
+    assert "put the exact command in your hand-off" in explanation
+
+
+def test_explain_states_the_add_allow_policy_canonical_form_verbatim():
+    assert ADD_ALLOW_POLICY_CANONICAL_FORM in Config.defaults().explain()
 
 
 def test_explain_renders_the_add_allow_policy_advisory_before_the_decomposition_advisory():
