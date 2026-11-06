@@ -23,7 +23,7 @@ from allowed_command import AllowedCommand
 from blocked_commands_policy import BlockedCommandsPolicy
 from command_substitution_policy import CommandSubstitutionPolicy
 from described_problems import described_problems_for_entry
-from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_transform
+from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_passthrough
 from layer_presence import LayerPresence
 from name_collection import AllowedPathPrefixes, BlockedCommands, SensitiveVariables
 from path_config import PathConfig
@@ -368,11 +368,11 @@ class Config:
         via-allowed-commands substitution check) - never hidden state, so a
         caller (a test) can pass a tiny value to trip the guard cheaply.
 
-        The two escalation paths (leaf 20260915-010959) are RESULT
-        TRANSFORMERS applied here, outside the pass pipeline itself - see
-        escalation_policy.py's module docstring for why, and for the
-        "sole invoked program" recognition rule that stops either wrapper
-        from laundering a command merely sharing its line.
+        The two escalation paths (leaf 20260915-010959) are applied here,
+        outside the pass pipeline itself - see escalation_policy.py's module
+        docstring. `bypass-policy` is checked BEFORE the ordinary pipeline
+        and returns `passthrough` unanalysed; neither wrapper launders a
+        command merely sharing its line.
         """
         statement = _parse_and_normalize(command)
         if statement is None:
@@ -387,22 +387,13 @@ class Config:
         if add_allow is not None:
             return add_allow
 
-        ordinary = self._decision_for_statement(statement, command, depth=0, max_nested_depth=max_nested_depth)
-
-        bypass = bypass_transform(
-            statement,
-            ordinary,
-            lambda text: self._decision_for_text(text, 0, max_nested_depth),
-            command_text=command,
-        )
+        bypass = bypass_passthrough(statement)
         if bypass is not None:
             return bypass
 
+        ordinary = self._decision_for_statement(statement, command, depth=0, max_nested_depth=max_nested_depth)
         hinted = bypass_chain_hint(statement, ordinary)
-        if hinted is not None:
-            return hinted
-
-        return ordinary
+        return hinted if hinted is not None else ordinary
 
     def decision_for_with_entry(self, entry, command):
         """`decision_for(command)` as it would be if the allowedCommands

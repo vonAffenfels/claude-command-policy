@@ -3,12 +3,13 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-progress
+- Status: in-review
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T11:26:00+01:00
 - Plan finished: 2026-11-06T12:05:07+01:00
 - Impl started: 2026-11-06T12:05:30+01:00
+- Impl finished: 2026-11-06T12:09:27+01:00
 - Merge target: main
 
 ## This Improvement's Objective
@@ -288,29 +289,29 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] `Statement.as_single_command_program()` test-first (`tests/test_statement.py`, `lib/statement.py`)
-- [ ] Spec suite: rewrite the blocked-command and redirect bypass cases to `passthrough`, add the substitution /
+- [x] Update status to in-progress
+- [x] `Statement.as_single_command_program()` test-first (`tests/test_statement.py`, `lib/statement.py`)
+- [x] Spec suite: rewrite the blocked-command and redirect bypass cases to `passthrough`, add the substitution /
       process-substitution / already-allowed / chained-with-substitution cases and their `MATCHING_BRANCH_COVERAGE`
       branches (`tests/test_permission_decisions.py`) — red
-- [ ] Replace `bypass_transform` with `is_bypass_invocation` + `bypass_passthrough`, rewrite its unit tests
+- [x] Replace `bypass_transform` with `is_bypass_invocation` + `bypass_passthrough`, rewrite its unit tests
       (`lib/escalation_policy.py`, `tests/test_escalation_policy.py`); `bypass_chain_hint` uses `is_bypass_invocation`
-- [ ] Widen `bypass_chain_hint` to every denial: flip its near-miss unit test, add the spec case
+- [x] Widen `bypass_chain_hint` to every denial: flip its near-miss unit test, add the spec case
       (`bypass-policy echo hi && some-unlisted-tool` → deny + hint), remove `_FORCES_ASK_REASON_TYPES` and its
       now-unused imports, reword the `NotEscalatedByAnUnrelatedBypassWrapper` docstring (`lib/escalation_policy.py`,
       `lib/reason.py`, `tests/test_escalation_policy.py`, `tests/test_permission_decisions.py`)
-- [ ] Wire `bypass_passthrough` before the ordinary pipeline in `Config.decision_for`; delete the three re-analysis
+- [x] Wire `bypass_passthrough` before the ordinary pipeline in `Config.decision_for`; delete the three re-analysis
       tests (`lib/config.py`, `tests/test_config.py`) — spec suite green
-- [ ] Remove `Command.arguments_source_text` and its tests; drop unused imports in `lib/escalation_policy.py`
+- [x] Remove `Command.arguments_source_text` and its tests; drop unused imports in `lib/escalation_policy.py`
       (`lib/statement.py`, `tests/test_statement.py`)
-- [ ] `session_audit.is_bypass_wrapped` delegates to `is_bypass_invocation`, add the substitution case, fix the module
+- [x] `session_audit.is_bypass_wrapped` delegates to `is_bypass_invocation`, add the substitution case, fix the module
       docstring (`lib/session_audit.py`, `tests/test_session_audit.py`)
-- [ ] Neutral sample reason in `tests/test_hook_envelopes.py:101`; docstring in `tests/test_consumer_entrypoints.py:281`
+- [x] Neutral sample reason in `tests/test_hook_envelopes.py:101`; docstring in `tests/test_consumer_entrypoints.py:281`
       (points at `PASSTHROUGH_REASON`, still valid — verify only)
-- [ ] Docs: `bin/bypass-policy` docstring, `skills/config/SKILL.md` (§4 ~L112-121, escape hatches ~L295-300),
+- [x] Docs: `bin/bypass-policy` docstring, `skills/config/SKILL.md` (§4 ~L112-121, escape hatches ~L295-300),
       `docs/knowledgebase/command-policy-decision-model.md` (L42-43, L83-91, L139-152, L192, ~L551/570, ~L578-581,
       ~L986-988), escalation_policy / config / reason docstrings
-- [ ] Bump version 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
+- [x] Bump version 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
       the behaviour change)
-- [ ] Full suite green: `cd tests && nix-shell --run pytest`
+- [x] Full suite green: `cd tests && nix-shell --run pytest`
 - [ ] Update status to completed

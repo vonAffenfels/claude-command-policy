@@ -167,6 +167,10 @@ def test_is_bypass_wrapped_recognizes_the_sole_invoked_wrapper():
     assert session_audit.is_bypass_wrapped("bypass-policy rm -rf /") is True
 
 
+def test_is_bypass_wrapped_recognizes_a_wrapper_with_a_substitution_in_its_arguments():
+    assert session_audit.is_bypass_wrapped('bypass-policy git commit -m "$(echo msg)"') is True
+
+
 def test_is_bypass_wrapped_rejects_a_command_merely_sharing_the_line():
     assert session_audit.is_bypass_wrapped("bypass-policy true && rm -rf /") is False
 

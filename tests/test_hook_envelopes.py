@@ -98,13 +98,13 @@ def test_pretooluse_bash_response_renders_a_reason_tuple_to_prose():
 
 
 def test_pretooluse_bash_response_passes_a_plain_string_reason_through_unchanged():
-    decision = PermissionDecision.ask("bypass-policy cannot escalate this: needs a human")
+    decision = PermissionDecision.ask("proposed config change: needs a human")
 
     response = pretooluse_bash_response(decision)
 
     assert response["hookSpecificOutput"]["permissionDecision"] == "ask"
     assert response["hookSpecificOutput"]["permissionDecisionReason"] == (
-        "bypass-policy cannot escalate this: needs a human"
+        "proposed config change: needs a human"
     )
 
 

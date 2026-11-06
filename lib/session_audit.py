@@ -18,9 +18,9 @@ WHY THE BUCKETS ARE DIFFERENT FROM THE OLD SCRIPT. Under the old engine,
 `deny` was rare (blocked commands only) and `ask`/`passthrough` were the
 common "not auto-approved" outcomes. Under the new default-deny-with-hint
 model, almost every non-allowed command decides `deny` (carrying the
-equivalence-search hint) - `ask` is now reserved for the two escalation
-paths (a `bypass-policy`-forced ask, or an `add-allow-policy` proposal) and
-`passthrough` for a bypass that needed no forcing. So `deny` is now the
+equivalence-search hint) - `ask` is now reserved for the escalation
+path (an `add-allow-policy` proposal) and `passthrough` for every
+`bypass-policy` invocation. So `deny` is now the
 PRIMARY section a human reviewing this report acts on, not an informational
 tail - `render()`'s heading text reflects that.
 
@@ -36,11 +36,11 @@ from collections import Counter
 from dataclasses import dataclass
 from pathlib import Path
 
+from escalation_policy import is_bypass_invocation
 from statement import Statement
 
 DECISIONS = ("allow", "deny", "ask", "passthrough")
 
-BYPASS_WRAPPER_PROGRAM = "bypass-policy"
 BYPASS_BUCKET = "bypass"
 
 SUPPRESSING_MODES = ("acceptEdits", "bypassPermissions")
@@ -191,14 +191,14 @@ def extract_bash_commands(transcript_path, include_subagents=True):
 
 
 def is_bypass_wrapped(command):
-    """Whether `command` is exactly `bypass-policy <wrapped>` - the same
-    "sole invoked program" recognition rule escalation_policy.py uses, so a
+    """Whether `command` is one `bypass-policy <wrapped>` invocation - the
+    very recognition rule the engine uses (`is_bypass_invocation`), so a
     command merely SHARING a line with the wrapper (`bypass-policy true &&
     rm -rf /`) is not counted as an intervention."""
     statement = Statement.from_command(command)
     if statement is None:
         return False
-    return statement.as_sole_invoked_program() == BYPASS_WRAPPER_PROGRAM
+    return is_bypass_invocation(statement)
 
 
 def classify(commands, config):

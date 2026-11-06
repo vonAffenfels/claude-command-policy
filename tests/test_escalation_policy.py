@@ -5,8 +5,10 @@ the end-to-end behavioural contract through Config.decision_for).
 
 from pathlib import Path
 
+import pytest
+
 from config import Config
-from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_transform
+from escalation_policy import PASSTHROUGH_REASON, add_allow_policy_transform, bypass_chain_hint, bypass_passthrough
 from filter import Filter
 from permission_decision import PermissionDecision
 from reason import (
@@ -22,83 +24,46 @@ from reason import (
 from statement import Statement
 
 
-def test_bypass_transform_is_none_for_a_statement_it_does_not_recognize():
-    statement = Statement.from_command("echo hi")
-
-    assert bypass_transform(statement, PermissionDecision.allow(), lambda text: None) is None
+def test_bypass_passthrough_is_none_for_a_statement_it_does_not_recognize():
+    assert bypass_passthrough(Statement.from_command("echo hi")) is None
 
 
-def test_bypass_transform_allows_when_nothing_objects():
-    statement = Statement.from_command("bypass-policy echo hi")
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
+def test_bypass_passthrough_passes_a_bypass_invocation_through_unanalysed():
+    result = bypass_passthrough(Statement.from_command("bypass-policy rm -rf /"))
 
-    result = bypass_transform(statement, ordinary, lambda text: PermissionDecision.allow())
-
-    assert result == PermissionDecision.allow()
+    assert result == PermissionDecision.passthrough(PASSTHROUGH_REASON)
 
 
-def test_bypass_transform_passes_through_an_ordinary_near_miss():
-    statement = Statement.from_command("bypass-policy some-tool")
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
+def test_bypass_passthrough_passes_a_bypass_invocation_with_no_arguments_through():
+    assert bypass_passthrough(Statement.from_command("bypass-policy")).decision == "passthrough"
 
-    result = bypass_transform(
-        statement, ordinary, lambda text: PermissionDecision.deny((ProgramNotAllowListed("some-tool"),))
-    )
+
+def test_bypass_passthrough_recognizes_a_command_substitution_in_the_wrapped_arguments():
+    result = bypass_passthrough(Statement.from_command('bypass-policy git commit -m "$(echo msg)"'))
 
     assert result.decision == "passthrough"
 
 
-def test_bypass_transform_passes_through_a_filter_that_could_not_be_proven():
-    statement = Statement.from_command("bypass-policy git commit -m x")
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
-    unprovable_rule = Filter.from_definition({"type": "namedValue", "name": "subcommand", "pattern": "^commit$"})
-
-    result = bypass_transform(
-        statement, ordinary, lambda text: PermissionDecision.deny((FilterUnprovable("git", unprovable_rule),))
-    )
-
-    assert result.decision == "passthrough"
+def test_bypass_passthrough_recognizes_a_process_substitution_in_the_wrapped_arguments():
+    assert bypass_passthrough(Statement.from_command("bypass-policy ls <(echo x)")).decision == "passthrough"
 
 
-def test_bypass_transform_forces_ask_for_a_blocked_command():
-    statement = Statement.from_command("bypass-policy rm -rf /")
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
-
-    result = bypass_transform(
-        statement, ordinary, lambda text: PermissionDecision.deny((BlockedCommandInvoked("rm"),))
-    )
-
-    assert result.decision == "ask"
-    assert "rm" in result.reason
+def test_bypass_passthrough_recognizes_a_redirect_on_the_wrapper():
+    assert bypass_passthrough(Statement.from_command("bypass-policy echo x > /outside/file")).decision == "passthrough"
 
 
-def test_bypass_transform_re_analyses_the_wrapped_source_text_keeping_quotes_and_variables():
-    command = 'bypass-policy cat "a; b" "$X"'
-    statement = Statement.from_command(command)
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
-    analysed = []
-
-    bypass_transform(
-        statement,
-        ordinary,
-        lambda text: analysed.append(text) or PermissionDecision.allow(),
-        command_text=command,
-    )
-
-    assert analysed == ['cat "a; b" "$X"']
-
-
-def test_bypass_transform_does_not_call_decide_wrapped_text_when_there_are_no_arguments():
-    statement = Statement.from_command("bypass-policy")
-    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
-
-    result = bypass_transform(
-        statement,
-        ordinary,
-        lambda text: (_ for _ in ()).throw(AssertionError("should not be called for an empty wrapped text")),
-    )
-
-    assert result == PermissionDecision.allow()
+@pytest.mark.parametrize(
+    "command",
+    [
+        "bypass-policy true && rm -rf /",
+        "bypass-policy true; rm -rf /",
+        "bypass-policy echo x | tee y",
+        "bypass-policy echo x &",
+        "echo $(bypass-policy ls)",
+    ],
+)
+def test_bypass_passthrough_is_none_when_the_wrapper_shares_its_line(command):
+    assert bypass_passthrough(Statement.from_command(command)) is None
 
 
 def test_bypass_chain_hint_is_none_when_the_wrapper_is_absent():
@@ -115,11 +80,14 @@ def test_bypass_chain_hint_is_none_when_the_wrapper_covers_the_whole_line():
     assert bypass_chain_hint(statement, ordinary) is None
 
 
-def test_bypass_chain_hint_is_none_for_an_ordinary_near_miss():
+def test_bypass_chain_hint_augments_an_ordinary_near_miss_on_a_chained_line():
     statement = Statement.from_command("bypass-policy echo hi && some-tool")
     ordinary = PermissionDecision.deny((ProgramNotAllowListed("some-tool"),))
 
-    assert bypass_chain_hint(statement, ordinary) is None
+    hinted = bypass_chain_hint(statement, ordinary)
+
+    assert ProgramNotAllowListed("some-tool") in hinted.reason
+    assert NotEscalatedByAnUnrelatedBypassWrapper() in hinted.reason
 
 
 def test_bypass_chain_hint_augments_a_blocked_command_chained_alongside_the_wrapper():

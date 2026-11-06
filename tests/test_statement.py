@@ -410,6 +410,33 @@ class TestAsSoleInvokedProgram:
         assert statement.as_sole_invoked_program() is None
 
 
+class TestAsSingleCommandProgram:
+    """Looser than `as_sole_invoked_program()`: a substitution inside the
+    one command's words does not disqualify it."""
+
+    def test_a_bare_command_is_its_own_single_command_program(self):
+        assert Statement.from_command("cat a").as_single_command_program() == "cat"
+
+    def test_a_command_substitution_in_the_arguments_still_counts(self):
+        assert Statement.from_command('git commit -m "$(echo msg)"').as_single_command_program() == "git"
+
+    def test_a_process_substitution_in_the_arguments_still_counts(self):
+        assert Statement.from_command("ls <(echo x)").as_single_command_program() == "ls"
+
+    def test_a_redirect_on_the_command_still_counts(self):
+        assert Statement.from_command("echo x > out.txt").as_single_command_program() == "echo"
+
+    def test_negated_still_counts(self):
+        assert Statement.from_command("! cat a").as_single_command_program() == "cat"
+
+    @pytest.mark.parametrize(
+        "command",
+        ["cat a; cat b", "cat a && cat b", "cat a | tee b", "(cat a)", "cat a &", "if true; then cat a; fi", "x=1"],
+    )
+    def test_any_other_top_level_shape_excludes(self, command):
+        assert Statement.from_command(command).as_single_command_program() is None
+
+
 REDIRECT_NESTING_SHAPES = [
     ("simple_command", "cat a > out.txt", ("out.txt",)),
     ("compound_block", "{ cat a; cat b; } > blk.txt", ("blk.txt",)),
@@ -601,30 +628,6 @@ class TestWithHeredocNormalizedToLit:
         normalized = statement.with_heredoc_normalized_to_lit()
 
         assert any(isinstance(s, CmdSubst) for s in _all_nested(normalized))
-
-
-class TestCommandArgumentsSourceText:
-    """`Command.arguments_source_text(command)`: the slice of the original
-    command the arguments occupy, quoting and unknowable content intact."""
-
-    def test_keeps_quoting_and_variables_exactly_as_written(self):
-        command = 'bypass-policy echo "a; rm x" $X'
-
-        statement = Statement.from_command(command)
-
-        assert statement.arguments_source_text(command) == 'echo "a; rm x" $X'
-
-    def test_counts_offsets_in_bytes_not_characters(self):
-        command = 'bypass-policy echo "ä" b'
-
-        statement = Statement.from_command(command)
-
-        assert statement.arguments_source_text(command) == 'echo "ä" b'
-
-    def test_is_empty_for_a_command_with_no_arguments(self):
-        statement = Statement.from_command("echo")
-
-        assert statement.arguments_source_text("echo") == ""
 
 
 class TestCommandArguments:

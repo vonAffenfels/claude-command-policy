@@ -182,6 +182,17 @@ class Statement:
             return None
         return self.command_word
 
+    def as_single_command_program(self):
+        """The program this line's one top-level command invokes, else None.
+
+        Unlike `as_sole_invoked_program()`, a command/process substitution
+        inside that command's words does not disqualify it: the line still
+        hands its argv to exactly this one program. A list, pipeline,
+        subshell, control flow or backgrounding still does."""
+        if not isinstance(self, Command) or self.is_backgrounded:
+            return None
+        return self.command_word
+
     def all_redirect_targets(self):
         """The literal file targets of every redirect this statement or any
         sub-statement carries, at any nesting depth - including into
@@ -387,22 +398,6 @@ class Command(Statement):
         raw material the policy pipeline's parsers and substitution-
         unknowability rules work from (leaf 20260914-213652)."""
         return tuple(Argument.from_word(word) for word in self._args[1:])
-
-    def arguments_source_text(self, command):
-        """The slice of `command` (the text this statement was parsed from)
-        that the arguments occupy - from the first argument's start to the
-        last one's end - so quoting and unknowable content (`$X`, `$(...)`)
-        reach a re-analysis exactly as the shell will see them. shfmt
-        offsets are BYTE offsets, hence the encoded slice. None when no
-        position is available (a Command built without shfmt positions)."""
-        if len(self._args) < 2:
-            return ""
-        try:
-            start = self._args[1]["Pos"]["Offset"]
-            end = self._args[-1]["End"]["Offset"]
-        except (KeyError, TypeError):
-            return None
-        return command.encode()[start:end].decode()
 
     def _own_sub_statements(self):
         return _find_embedded_statements(self._args) + _find_embedded_statements(self._assigns)

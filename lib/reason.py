@@ -26,13 +26,10 @@ production decisions).
 
 CATEGORICAL vs NEAR-MISS is a classification by ORIGIN, not by anything the
 ordinary decision pipeline needs to branch on (any Reason present denies,
-full stop - see config.py's _decision_for_statement). It matters only to the
-bypass-policy escalation transformer (escalation_policy.py), which forces
-`ask` specifically for the categorical kinds a wrapper cannot legitimately
-launder around: a shell-performed redirect, a blocked command, or a
-sensitive path are true regardless of which program ends up running, while
-every near-miss kind is a property of one particular allowedCommands entry's
-own vouching attempt.
+full stop - see config.py's _decision_for_statement). A categorical kind
+(a shell-performed redirect, a blocked command, a sensitive path) is true
+regardless of which program ends up running, while every near-miss kind is a
+property of one particular allowedCommands entry's own vouching attempt.
 """
 
 from __future__ import annotations
@@ -182,14 +179,13 @@ NEAR_MISS_REASON_TYPES = (
 
 @dataclass(frozen=True)
 class NotEscalatedByAnUnrelatedBypassWrapper:
-    """`bypass-policy` appears elsewhere on this line but does not wrap the
-    command a categorical objection above this in the list is about - only
-    what the wrapper actually invokes escalates (the deliberate carve-out
-    against `bypass-policy true && rm -rf /` upgrading the unwrapped `rm`
-    from deny to ask - see escalation_policy.py's module docstring). Never
-    itself the reason a command was denied; always accompanies a categorical
-    Reason it clarifies, naming the fix: wrap the objecting command
-    explicitly to escalate it."""
+    """`bypass-policy` appears elsewhere on this line but the line is not one
+    bypass invocation - only a line that IS the wrapper passes through (the
+    deliberate carve-out against `bypass-policy true && rm -rf /` laundering
+    the unwrapped `rm` - see escalation_policy.py's module docstring). Never
+    itself the reason a command was denied; accompanies ANY objection on
+    such a chained line, naming the fix: wrap the objecting command
+    explicitly to pass it through."""
 
 
 # -- add-allow-policy's own strict grammar (never produced by the ordinary

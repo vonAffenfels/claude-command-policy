@@ -2795,24 +2795,59 @@ def test_the_bypass_wrapper_yields_passthrough_rather_than_allow():
     )
 
 
-def test_the_bypass_wrapper_escalates_a_blocked_command_to_a_human_decision():
-    """Re-adjudicated 2026-09-17 (leaf 20260915-010959): a blocked-command
-    objection is one of the two the wrapper can never launder around
-    silently - it forces `ask` rather than `passthrough`, so the human sees
-    it rather than a permissive settings.json or an accepting permission
-    mode silently letting it through with no one ever seeing it.
-    """
+def test_the_bypass_wrapper_passes_a_blocked_command_through_unanalysed():
+    """Re-adjudicated 2026-11-06 (improvement 20261106-112550), reversing
+    2026-09-17: the wrapped command is never analysed, so even a blocked
+    command yields `passthrough`. `bypass-policy` exists to let through what
+    the engine will not auto-allow; the operator sees the whole line."""
     assert_decision(
         "bypass-policy rm -rf ./build",
         {"allowedCommands": ["echo"], "blockedCommands": ["rm"]},
-        "ask",
+        "passthrough",
     )
+
+
+def test_the_bypass_wrapper_passes_an_already_allowed_command_through_rather_than_allowing_it():
+    assert_decision("bypass-policy echo hi", {"allowedCommands": ["echo", "bypass-policy"]}, "passthrough")
+
+
+def test_the_bypass_wrapper_recognizes_a_command_substitution_in_its_arguments():
+    """The reported defect: `as_sole_invoked_program()` is None for any command
+    with a substitution, so the wrapper was not recognised and the user's own
+    `bypass-policy` entry denied it as an unknowable path operand."""
+    assert_decision(
+        'bypass-policy git commit -m "$(echo msg)"',
+        {"allowedCommands": ["bypass-policy"]},
+        "passthrough",
+    )
+
+
+def test_the_bypass_wrapper_recognizes_a_process_substitution_in_its_arguments():
+    assert_decision("bypass-policy ls <(echo x)", {"allowedCommands": ["bypass-policy"]}, "passthrough")
+
+
+def test_a_substitution_does_not_make_a_chained_command_part_of_the_bypass():
+    result = assert_decision(
+        'bypass-policy echo "$(echo x)" && rm -rf ./build',
+        {"allowedCommands": ["echo"], "blockedCommands": ["rm"]},
+        "deny",
+    )
+    assert_reason_includes(result, NotEscalatedByAnUnrelatedBypassWrapper())
+
+
+def test_the_chain_hint_accompanies_an_ordinary_objection_on_a_chained_line_too():
+    result = assert_decision(
+        "bypass-policy echo hi && some-unlisted-tool",
+        {"allowedCommands": ["echo"]},
+        "deny",
+    )
+    assert_reason_includes(result, NotEscalatedByAnUnrelatedBypassWrapper())
 
 
 def test_the_bypass_wrapper_treats_a_double_quoted_inner_command_like_the_single_quoted_form():
     """Finding 1, the worst false-ALLOW this improvement fixes. Before the
     Argument.text fix, `bypass-policy "rm -rf /"`'s wrapped_text read as the
-    empty string, which escalation_policy.py's `bypass_transform` took as
+    empty string, which the (since removed) `bypass_transform` took as
     "nothing to re-evaluate" and returned `PermissionDecision.allow()`
     directly - AUTO-ALLOWED, no human ever involved. `rm` is merely not
     allow-listed (not blocked/sensitive-path/redirect-outside), so the
@@ -2838,32 +2873,27 @@ def test_the_bypass_wrapper_does_not_cover_a_command_chained_alongside_it():
     assert_reason_includes(result, NotEscalatedByAnUnrelatedBypassWrapper())
 
 
-def test_the_shell_performed_redirect_veto_is_never_waived_but_escalates_to_a_human(
+def test_a_redirect_on_the_bypass_wrapper_passes_through_unanalysed(
     cwd_pinned_inside_project,
 ):
-    """The one guard `bypass-policy` cannot lift - re-adjudicated 2026-09-17
-    (leaf 20260915-010959): NOT 'survives as deny' any more. `deny` would
-    dead-end an escalation the caller made explicitly by name, pointing at
-    alternatives that by definition do not exist for a shell-performed
-    redirect. The veto is never WAIVED - the wrapper still cannot vouch for
-    a redirect the calling shell performs before it ever starts - but it now
-    surfaces to the human as `ask` rather than dead-ending as `deny`.
-    """
+    """Re-adjudicated 2026-11-06 (improvement 20261106-112550), reversing
+    2026-09-17's forced `ask`: no guard survives on a recognised bypass
+    invocation - not even a redirect to a sensitive path. The operator sees
+    the whole line in Claude Code's prompt."""
     with cwd_pinned_inside_project():
         assert_decision(
             "bypass-policy echo x > /vault/secret.txt",
             {"allowedCommands": ["echo"], "sensitivePaths": ["/vault/secret.txt"]},
-            "ask",
+            "passthrough",
         )
 
 
 def test_add_allow_policy_forces_ask_as_the_durable_fix_escalation():
     """Flag List C2. Re-adjudicated 2026-09-17 (leaf 20260915-010959):
-    `add-allow-policy` is no longer the ONLY path that forces `ask` -
-    `bypass-policy` now also forces it for a blocked-command/sensitive-path/
-    redirect objection (see the two tests above) - but it remains the ONLY
-    path whose ask dialog IS the durable config write, where a bypass ask
-    only gets one command past the gate this once.
+    `add-allow-policy` briefly shared `ask` with `bypass-policy`; since
+    2026-11-06 it is again the ONLY path that forces `ask`, and its dialog IS
+    the durable config write, where a bypass passthrough only gets one
+    command past the gate this once.
 
     RE-AUTHORED 2026-09-17 (reopened for the strict grammar, Task 1): the
     original case omitted `--intent` and a quoted command, which is now
@@ -3681,8 +3711,26 @@ MATCHING_BRANCH_COVERAGE = {
     "bypass_wrapper_double_quoted_inner_command": [
         "test_the_bypass_wrapper_treats_a_double_quoted_inner_command_like_the_single_quoted_form"
     ],
-    "redirect_veto_overrides_bypass": [
-        "test_the_shell_performed_redirect_veto_is_never_waived_but_escalates_to_a_human"
+    "bypass_wrapper_blocked_command_passes_through": [
+        "test_the_bypass_wrapper_passes_a_blocked_command_through_unanalysed"
+    ],
+    "bypass_wrapper_already_allowed_command_passes_through": [
+        "test_the_bypass_wrapper_passes_an_already_allowed_command_through_rather_than_allowing_it"
+    ],
+    "bypass_wrapper_command_substitution": [
+        "test_the_bypass_wrapper_recognizes_a_command_substitution_in_its_arguments"
+    ],
+    "bypass_wrapper_process_substitution": [
+        "test_the_bypass_wrapper_recognizes_a_process_substitution_in_its_arguments"
+    ],
+    "bypass_wrapper_chained_with_substitution": [
+        "test_a_substitution_does_not_make_a_chained_command_part_of_the_bypass"
+    ],
+    "bypass_chain_hint_for_ordinary_objection": [
+        "test_the_chain_hint_accompanies_an_ordinary_objection_on_a_chained_line_too"
+    ],
+    "bypass_wrapper_redirect_passes_through": [
+        "test_a_redirect_on_the_bypass_wrapper_passes_through_unanalysed"
     ],
     "add_allow_policy_forces_ask": ["test_add_allow_policy_forces_ask_as_the_durable_fix_escalation"],
     "add_allow_policy_grammar_violation_redirect": [

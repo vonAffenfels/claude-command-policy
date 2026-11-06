@@ -2,13 +2,12 @@
 """bypass-policy: the escape hatch's runtime half.
 
 Does nothing but exec what it was passed. Its entire value is that
-Config.decision_for (lib/escalation_policy.py) recognizes anything wrapped
-in it as a distinct case and transforms the ordinary decision - `ask` for a
-blocked command, a sensitive path, or a redirect landing outside the
-project/allowed prefixes (never silently laundered around), `passthrough`
-for anything else - rather than a dead-ending `deny`. See
-escalation_policy.py's module docstring for the full outcome mapping and the
-"sole invoked program" recognition rule.
+Config.decision_for (lib/escalation_policy.py) recognizes a line that is one
+invocation of it and returns `passthrough` WITHOUT analysing anything - the
+wrapped command is never inspected, so no objection (blocked command,
+sensitive path, unknowable operand, substitution) turns it into a dead-ending
+`deny`. See escalation_policy.py's module docstring for the recognition rule
+(a line merely sharing a list/pipeline with the wrapper is not recognised).
 
 Run by the session itself when no auto-allowed command does the job - it is a
 statement to the plugin ("I know no entry allows this"), not a request for the

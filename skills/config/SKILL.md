@@ -110,15 +110,11 @@ contributes its own reason, not just the first:
    `additionalAllowedPathPrefixes`.
 6. `allowedCommands` - deny-by-default: no entry vouches.
 
-**Categorical** objections (1, 2, 3 in deny mode, 4, 5) are true regardless of which `allowedCommands` entry is in
-play - `bypass-policy` escalates these to `ask` rather than silently waiving them (a redirect the wrapper performs, a
-blocked command, or a sensitive path referenced are never something a wrapper program can legitimately vouch for on your
-behalf).
-
+**Categorical** objections (1, 2, 3 in deny mode, 4, 5) are true regardless of which `allowedCommands` entry is in play.
 **Near-miss** objections (6, and its own several distinct reasons: no entry names the program at all; the program's own
-entry didn't vouch for this invocation's shape) are properties of one candidate entry's own vouching attempt -
-`bypass-policy` downgrades these to `passthrough` (hands the decision to Claude Code's own permission rules) rather than
-forcing `ask`.
+entry didn't vouch for this invocation's shape) are properties of one candidate entry's own vouching attempt.
+`bypass-policy` makes no distinction: a line that is one `bypass-policy` invocation is never analysed and always decides
+`passthrough` (hands the decision to Claude Code's own permission rules).
 
 ## 5. Entries describe command shapes
 
@@ -292,13 +288,11 @@ parsers that can publish on `nestedCommands`; none of the others ever do.
 
 ## Reference: escape hatches
 
-- **`bypass-policy <program> [args...]`** - argv form, run by the session itself. Recognized ONLY when it is the SOLE
-  statement on the line (`Statement. as_sole_invoked_program()`), never a `startswith` prefix check -
-  `bypass-policy true && rm -rf /` does NOT escalate the `rm`. The wrapped command is re-analysed from its own source
-  text, so a quoted `;` or `>` stays one argument and `$X` stays unknowable. Combines the wrapper's own shell-level
-  objections with the wrapped command's ordinary decision: if nothing objects, simply `allow`; a categorical objection
-  (blocked command, sensitive path, an out-of-bounds redirect) forces `ask` rather than being silently waived; anything
-  else becomes `passthrough`.
+- **`bypass-policy <program> [args...]`** - argv form, run by the session itself. Recognized ONLY when the line is a
+  single `bypass-policy` command (`Statement.as_single_command_program()`), never a `startswith` prefix check -
+  `bypass-policy true && rm -rf /` does NOT pass the `rm` through. Substitutions and redirects on the wrapper are
+  tolerated (the operator sees the whole line in Claude Code's prompt). The wrapped command is never analysed: a
+  recognised invocation always decides `passthrough` - never `allow`, never a forced `ask`.
 - **`add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example "<command>" ...] '<entry>'`** -
   the ONLY accepted grammar; the entry must be ONE quoted argument (an unquoted trailing redirect is performed by the
   OUTER shell against `add-allow-policy`'s own stdout, not by the tool - quoting prevents this). Violation codes, each

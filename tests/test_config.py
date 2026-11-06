@@ -491,26 +491,3 @@ def test_with_additional_warnings_appends_without_dropping_existing_warnings():
     combined = config.with_additional_warnings(config.described_problems(_FakeDescriber({})))
 
     assert len(combined.warnings()) == 1
-
-
-def _echo_allowed_rm_blocked_config():
-    return Config.from_dict({"allowedCommands": ["echo"], "blockedCommands": ["rm"]})
-
-
-def test_bypass_analyses_a_quoted_semicolon_as_one_argument_of_the_wrapped_command():
-    config = _echo_allowed_rm_blocked_config()
-
-    assert config.decision_for('echo "a; rm x"').decision == "allow"
-    assert config.decision_for('bypass-policy echo "a; rm x"').decision == "allow"
-
-
-def test_bypass_analyses_a_quoted_redirect_operator_as_one_argument_of_the_wrapped_command():
-    config = _echo_allowed_rm_blocked_config()
-
-    assert config.decision_for('bypass-policy echo "a > /etc/foo"').decision == "allow"
-
-
-def test_bypass_still_forces_ask_for_a_genuinely_wrapped_blocked_command():
-    config = _echo_allowed_rm_blocked_config()
-
-    assert config.decision_for("bypass-policy rm x").decision == "ask"
