@@ -37,11 +37,18 @@ for blocked/sensitive). Every other objection becomes `passthrough` - the
 engine states no opinion and whatever governs the call outside this hook
 decides.
 
-`add-allow-policy --scope user|project --intent "<why>" "<command>"` is the
-ONE accepted grammar (reopened 2026-09-17, operator decision) - it always
-forces `ask` when matched, carrying a JSON diff of the exact entry it would
-append plus the stated intent - approving the dialog IS the durable config
-write. `--intent` IS now required by the grammar itself, overriding this
+The wrapped command is re-analysed from its own SOURCE TEXT (the span of the
+original command its words occupy), so quoting and unknowable content reach
+the re-analysis exactly as `execvp` will see them.
+
+`add-allow-policy --scope user|project --intent "<why>" --example "<command>"
+[--example ...] '<entry>'` is the ONE accepted grammar (reopened 2026-09-17,
+operator decision) - it always forces `ask` when matched, carrying a JSON diff
+of the exact entry it would append plus the stated intent and examples -
+approving the dialog IS the durable config write. The entry is a program name
+or a JSON entry object, never a command line; every `--example` must be
+allowed by the effective config plus the entry and at least one must not be
+allowed without it (see `example_objections_for`), or the proposal denies. `--intent` IS now required by the grammar itself, overriding this
 leaf's own earlier reading (see Implementation Notes) that located the
 requirement only on the write side (`lib/add_allow_write.py`); that write-side
 check stays too, as defence in depth rather than a replacement.
@@ -57,13 +64,12 @@ Quoting is semantic, not cosmetic: an unquoted `add-allow-policy --scope user
 --intent "x" echo something > somewhere` parses as add-allow-policy with args
 `[echo, something]` and a redirect the OUTER shell performs against
 add-allow-policy's own stdout - the policy persisted would be "echo
-something", not what the caller meant. Quoting the whole command
-(`"echo something > somewhere"`) makes it ONE argument, which is what the
-grammar exists to guarantee.
+something", not what the caller meant. Quoting the entry makes it ONE
+argument, which is what the grammar exists to guarantee.
 
 Flag ORDER itself is not fixed - only the flag/positional SHAPE is (exactly
-one `--scope`, exactly one `--intent`, exactly one remaining command
-argument) - see this leaf's Design Decisions, 'Whether the strict
+one `--scope`, exactly one `--intent`, at least one `--example`, exactly one
+remaining entry argument) - see this leaf's Design Decisions, 'Whether the strict
 add-allow-policy grammar fixes flag ORDER or only flag/positional shape', for
 why (an unattended judgment call, recorded there for review).
 """

@@ -10,8 +10,14 @@ for anything else - rather than a dead-ending `deny`. See
 escalation_policy.py's module docstring for the full outcome mapping and the
 "sole invoked program" recognition rule.
 
+Run by the session itself when no auto-allowed command does the job - it is a
+statement to the plugin ("I know no entry allows this"), not a request for the
+operator to run something. Argv form only: the words are exec'd exactly as the
+shell split them; a single string naming a whole command is not a program.
+
 Usage:
-  bypass-policy <command> [args...]
+  bypass-policy <program> [args...]
+  bypass-policy ls -d bin
   bypass-policy bash -c 'cat file.txt && python3 script.py'
 """
 

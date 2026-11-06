@@ -138,32 +138,49 @@ exists, and no Policy or `Pass` value references any of the three:
   `bypass-policy true && rm -rf /` from laundering the chained `rm` through a single opt-in. It combines the wrapper's
   own shell-level objections (its own redirects; anything a raw-text scan of the whole line finds — sensitive
   paths/variables, command substitution) with the wrapped command's own decision, from re-entering the ordinary pipeline
-  on everything after the wrapper. If nothing objects, the command is simply `allow`ed. Otherwise: a
-  `BlockedCommandInvoked`, `SensitivePathReferenced`, or `RedirectOutsideAllowedPaths` reason forces `ask`; any other
-  reason (an ordinary near-miss — the wrapped program merely isn't allow-listed, say) becomes `passthrough`.
+  on everything after the wrapper — re-analysed from the wrapped words' own SOURCE TEXT (the slice of the original
+  command from the first wrapped word's start to the last one's end, via shfmt byte offsets,
+  `Command.arguments_source_text`), so quoting and unknowable content survive exactly as the shell hands them to
+  `execvp`: a quoted `;` or `>` stays one argument and `$X` stays unknowable. (Re-joining `Argument.text` instead would
+  re-parse a quoted `;` as shell syntax and erase `$X`.) The runtime takes the argv form only —
+  `bypass-policy <program> [args...]`; a single string naming the whole command is not a program. If nothing objects,
+  the command is simply `allow`ed. Otherwise: a `BlockedCommandInvoked`, `SensitivePathReferenced`, or
+  `RedirectOutsideAllowedPaths` reason forces `ask`; any other reason (an ordinary near-miss — the wrapped program
+  merely isn't allow-listed, say) becomes `passthrough`.
 - **`bypass_chain_hint`** runs when `bypass_transform` does NOT apply (the line is not exactly the wrapper) but
   `bypass-policy` appears somewhere else on it AND the ordinary decision already carries a forcing categorical reason —
   the carve-out for `bypass-policy true && rm -rf /`: the unwrapped `rm` still denies, but the reason list gains a
   trailing `NotEscalatedByAnUnrelatedBypassWrapper`, whose rendered clause names the fix ("wrap it explicitly to
   escalate it") rather than leaving a reader wondering why the wrapper on the line didn't help.
 - **`add_allow_policy_transform`** recognizes `add-allow-policy`'s **strict grammar** — the ONE accepted shape is
-  `add-allow-policy --scope <user|project> --intent "<why>" "<command>"`, and matching it forces `ask`, carrying a JSON
-  diff of the exact entry it would append plus the stated intent — approving the dialog IS the write
-  (`lib/add_allow_write.py`/`bin/add-allow-policy` perform it once approved). `--intent` is required by the GRAMMAR
-  itself here (reopened 2026-09-17, operator decision superseding this leaf's own earlier reading) — the write-side
-  script's own `--intent` check (`lib/add_allow_write.py`) stays too, as defence in depth rather than a replacement.
+  `add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example "<command>" ...] '<entry>'`,
+  and matching it forces `ask`, carrying a JSON diff of the exact entry it would append, the stated intent and the
+  examples — approving the dialog IS the write (`lib/add_allow_write.py`/`bin/add-allow-policy` perform it once
+  approved). The `<entry>` is an `allowedCommands` ENTRY — a program name or a JSON entry object — never a command line.
+  `--intent` is required by the GRAMMAR itself here (reopened 2026-09-17, operator decision superseding this leaf's own
+  earlier reading) — the write-side script's own `--intent` check (`lib/add_allow_write.py`) stays too, as defence in
+  depth rather than a replacement.
 
   **Quoting is semantic here, not cosmetic — it is the whole reason the grammar is strict.**
   `add-allow-policy --scope user --intent "x" echo something > somewhere` parses as `add-allow-policy` invoked with args
   `[echo, something]` plus a redirect the OUTER shell performs against `add-allow-policy`'s own stdout before the tool
   ever runs — the policy that would persist is `"echo something"`, not what the caller meant, and `"> somewhere"` never
-  reaches the tool at all. Quoting the whole command instead —
-  `add-allow-policy --scope user --intent "x" "echo something > somewhere"` — makes it ONE argument, which is what the
-  grammar exists to guarantee.
+  reaches the tool at all. Quoting the entry as ONE argument is what the grammar exists to guarantee.
+
+  **A proposal must prove it works.** A well-formed entry can still fail to allow what it was written for — a whole
+  command line written as the entry (`'git status --short'`) is accepted by the loader as a program name and then
+  matches nothing. So at least one `--example` (a real command the entry must allow) is required, and the transform
+  checks every example against the session's effective config merged with the proposed entry
+  (`Config.decision_for_with_entry`): each must decide `allow`, and at least one must NOT already be allowed by the
+  effective config alone (otherwise the entry adds nothing). A failure denies with an `AddAllowPolicyExampleRejected`
+  (naming the example and the objection it got) or `AddAllowPolicyEntryChangesNothing` Reason. The transform receives
+  the two deciders as callables and loads no config itself; the write side re-runs the same `example_objections_for`
+  against the config loaded from disk. A program name containing whitespace is also an `AllowedCommand` static problem
+  ("names a program, not a command"), so it surfaces through every warning channel too.
 
   Every shape other than the one accepted grammar **denies** (never asks) via an `AddAllowPolicyGrammarViolation`
   Reason, rendered by the single renderer like every other reason — never a hand-built string at the policy site. Its
-  `violation` field is one of eight controlled-vocabulary codes, each with its own explanation clause in
+  `violation` field is one of nine controlled-vocabulary codes, each with its own explanation clause in
   `reason_renderer.py`'s `_ADD_ALLOW_POLICY_VIOLATION_EXPLANATIONS`:
 
   | Code                         | Fires when                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                             |
@@ -174,7 +191,8 @@ exists, and no Policy or `Pass` value references any of the three:
   | `duplicate_scope`            | `--scope` was given more than once.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                    |
   | `invalid_scope_value`        | `--scope`'s value is neither `user` nor `project`.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                     |
   | `missing_intent`             | `--intent` was not given at all.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                       |
-  | `no_command_argument`        | Zero command arguments remain after consuming the flags.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                               |
+  | `missing_example`            | `--example` was not given at all, or was the last token with no value.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
+  | `no_command_argument`        | Zero entry arguments remain after consuming the flags.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                 |
   | `multiple_command_arguments` | More than one command argument remains — the quoting failure the grammar exists to catch.                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                                              |
 
   **Flag ORDER is deliberately not part of the grammar** — only the flag/positional SHAPE is fixed (exactly one valid
@@ -776,12 +794,17 @@ dispatch, never by shelling out to `explain-policy` itself. `command-policy:conf
 CONSUMER of a rendered decision, it is the reference a session reaches for BEFORE writing or reasoning about config at
 all — `user-invocable: true`, with a description led by the user's own phrasings ("change my command policy config",
 "stop asking for X", "always allow X", "block X") rather than the plugin name, which the operator found the old
-`shfmt-permissions:config` skill matched poorly on in practice. `Config.explain()`'s own static advisory line
-(`_ADD_ALLOW_POLICY_ADVISORY`, next to the decomposition advisory below) names both `add-allow-policy`'s canonical form
-and `command-policy:config` unconditionally, in every session's injected rules — not only inside a denial's own hint —
-so the skill name is present the moment a session might need it, per the operator's own diagnosis that Claude never
-proposed `add-allow-policy` unprompted simply because it was never SHOWN to a session, not because of any no-prompt
-rule.
+`shfmt-permissions:config` skill matched poorly on in practice. `Config.explain()`'s own static escalation advisory
+(`_ESCALATION_ADVISORY`, next to the decomposition advisory below) is injected unconditionally into every session's
+rules — not only inside a denial's own hint. It says WHEN to escalate, not only that the routes exist: when no
+auto-allowed command does the job, run `bypass-policy <program> [args...]` yourself rather than asking the operator to
+run it (the denial is routing, not a security boundary, so a bypass is a statement to the plugin, not a request for
+review); propose ONE durable `add-allow-policy` rule UP FRONT when a task will need many bypasses of one shape; propose
+it as the LAST step when a session piled up workarounds a rule would have collapsed; and put the exact command in the
+hand-off instead of running it when the work is handed on. It names `add-allow-policy`'s canonical form (the single
+`ADD_ALLOW_POLICY_CANONICAL_FORM` constant, which the skill and the finder agent state verbatim — pinned by a drift
+test) and `command-policy:config`, so the skill name is present the moment a session might need it. The guidance is
+prose only; no hook counts a session's bypasses.
 
 **`Config.explain()` distinguishes "no config file exists at either scope" from "a config file exists but is empty."**
 `config_loader.py`'s `_load_layer` used to test `path.exists()` and discard the answer, returning `Config.defaults()`

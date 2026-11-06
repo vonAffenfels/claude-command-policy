@@ -9,7 +9,11 @@ lib/add_allow_write.py for the write-side logic (parsing, validation,
 applying the entry).
 
 Usage:
-  add-allow-policy <entry> --scope user|project --intent "why"
+  add-allow-policy --scope user|project --intent "why" --example "<command>" [--example ...] '<entry>'
+
+<entry> is a program name or a JSON allowedCommands entry object. Every
+--example is checked against the effective config plus the entry before
+anything is written.
 """
 
 import os

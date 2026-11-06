@@ -135,6 +135,16 @@ Three parts; the first two are code, the third is the guidance that makes sessio
   single-quote JSON entries so inner double quotes survive, choose `--example`s that are the real commands that needed
   bypassing, default to `--scope user`, how to read an example-refusal and fix the entry.
 
+- **As implemented (2026-11-06):** `bypass_transform` gained an optional `command_text` (falls back to the old join when
+  absent); `Command.arguments_source_text(command)` slices the byte span. The whitespace problem applies to ANY entry's
+  `program` (bare string or JSON), not only bare strings. The transform takes two callables, `decide_example` and
+  `decide_example_with_entry` (`Config.decision_for_with_entry`); `example_objections_for` is shared with the write side
+  (`lib/add_allow_write.py`, which loads config via `load_config_from_environment`). `render_clauses` was added to the
+  renderer so an example's failure text embeds without a second equivalence pointer. A sensitive variable in a wrapped
+  command stays `passthrough` (not `ask`) - unchanged behaviour. Entrypoint tests now isolate `HOME`, since the real
+  user config would otherwise make a proposal "change nothing". The drift test compares canonical forms modulo
+  whitespace because a formatter hook re-wraps markdown.
+
 ## Test Architecture
 
 `tests/` with pytest (`cd tests && nix-shell --run pytest`). Unit tests are pure (`Config.from_dict`, no files):
@@ -230,27 +240,27 @@ Three parts; the first two are code, the third is the guidance that makes sessio
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] bypass re-analysis from the source span: `lib/statement.py` (argument byte span on `Command`),
+- [x] Update status to in-progress
+- [x] bypass re-analysis from the source span: `lib/statement.py` (argument byte span on `Command`),
       `lib/escalation_policy.py` (`bypass_transform`), `lib/config.py` (`decision_for` passes the parsed text); tests in
       `tests/test_statement.py`, `tests/test_escalation_policy.py`, `tests/test_config.py`
-- [ ] Whitespace-in-bare-program problem: `lib/allowed_command.py`; `tests/test_allowed_command.py`,
+- [x] Whitespace-in-bare-program problem: `lib/allowed_command.py`; `tests/test_allowed_command.py`,
       `tests/test_proposal_validation.py`
-- [ ] `--example` grammar + `missing_example`: `lib/escalation_policy.py` (`_classify_add_allow_invocation`),
+- [x] `--example` grammar + `missing_example`: `lib/escalation_policy.py` (`_classify_add_allow_invocation`),
       `lib/reason.py`, `lib/reason_renderer.py` (explanation, `ADD_ALLOW_POLICY_CANONICAL_FORM`);
       `tests/test_escalation_policy.py`, `tests/test_reason_renderer.py`
-- [ ] Example verification on the ask path: `lib/config.py` (verifier from `self` + one-entry overlay),
+- [x] Example verification on the ask path: `lib/config.py` (verifier from `self` + one-entry overlay),
       `lib/escalation_policy.py` (`add_allow_policy_transform`, dialog lists examples), new Reasons in `lib/reason.py` /
       `lib/reason_renderer.py`; `tests/test_escalation_policy.py`, `tests/test_config.py`
-- [ ] Write-side `--example` + re-check: `lib/add_allow_write.py`; `tests/test_escalation_entrypoints.py`
-- [ ] Escalation advisory replacing `_ADD_ALLOW_POLICY_ADVISORY`: `lib/config.py`; `tests/test_config.py`,
+- [x] Write-side `--example` + re-check: `lib/add_allow_write.py`; `tests/test_escalation_entrypoints.py`
+- [x] Escalation advisory replacing `_ADD_ALLOW_POLICY_ADVISORY`: `lib/config.py`; `tests/test_config.py`,
       `tests/test_hook_envelopes.py` (if it pins the text)
-- [ ] Agent step 4 returns the exact `bypass-policy …` line: `agents/find-auto-allowed-command.md`
-- [ ] Config skill "Writing an add-allow-policy proposal" + escape-hatch reference update: `skills/config/SKILL.md`;
+- [x] Agent step 4 returns the exact `bypass-policy …` line: `agents/find-auto-allowed-command.md`
+- [x] Config skill "Writing an add-allow-policy proposal" + escape-hatch reference update: `skills/config/SKILL.md`;
       drift test pinning the canonical form in skill and agent: `tests/test_skill_drift.py`
-- [ ] Docs: `README.md`, `docs/knowledgebase/command-policy-decision-model.md` (grammar table incl. `missing_example`,
+- [x] Docs: `README.md`, `docs/knowledgebase/command-policy-decision-model.md` (grammar table incl. `missing_example`,
       bypass source-span re-analysis), module docstrings of `lib/escalation_policy.py`, `bin/add-allow-policy`,
       `bin/bypass-policy`
-- [ ] Version bump 0.7.0 → 0.8.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, in the same
+- [x] Version bump 0.7.0 → 0.8.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, in the same
       commit as the content change; run `cd tests && nix-shell --run pytest`
 - [ ] Update status to completed
