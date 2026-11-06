@@ -123,8 +123,8 @@ fixture (`tests/conftest.py`, used by `tests/test_consumer_entrypoints.py`).
   `test_a_relative_command_argument_never_resolves_against_the_scratchpad_directory`.
 - `tests/test_workspace.py` — `test_its_path_resolution_contains_the_scratchpad_directory_it_was_given`,
   `test_without_a_scratchpad_directory_only_the_boundary_contains` (in-memory layout, as today).
-- `tests/test_hook_envelopes.py` — `scratchpad_directory_from_hook_input`: absolute → returned; absent, empty, relative,
-  non-string → `None`.
+- `tests/test_hook_envelopes.py` — `scratchpad_directory_from_hook_input`: absolute → returned; absent, JSON `null`
+  (what a headless `claude -p` session sends — measured), empty, relative, non-string → `None`.
 - `tests/test_config.py` — `explain()` renders the scratchpad line when the injected `PathResolutionContext` carries
   one, and no such line when it does not.
 - `tests/test_consumer_entrypoints.py` (end-to-end through the real hook):
@@ -176,10 +176,12 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
   including agent_id-tagged subagent calls. Note transcript_path's slug was the WORKTREE's while scratchpad_dir's slug
   is the LAUNCH dir's - further evidence layout re-derivation is fragile. Settings file in
   experiments/hook-capture.settings.json.)
-- **SessionStart's hook input also carries `scratchpad_dir`.** — unverified (Same base-field builder as
-  PreToolUse/SubagentStart in the binary, but SessionStart fired before the capture hook was installed. The
-  implementation degrades gracefully (no scratchpad line rendered) if absent; verify after install by checking the
-  rendered SessionStart context.)
+- **SessionStart's hook input also carries `scratchpad_dir`.** — confirmed (Live capture 2026-11-06 (claude-code
+  2.1.316): an interactive session spawned in the worktree got SessionStart(source=startup) with
+  scratchpad_dir=/tmp/claude-1001/...--claude-worktrees-improvement-20261106-122320/<sid>/scratchpad. A headless 'claude
+  -p' session got scratchpad_dir=null and had no scratchpad directory at all - so null/absent must be handled as 'no
+  scratchpad' (already the plan's behaviour). Note: this probe's slug was the worktree path because it was LAUNCHED
+  there - the slug follows the launch dir.)
 
 ## Design Decisions
 
@@ -222,15 +224,15 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
 - [ ] `Workspace` carries the scratchpad into `path_resolution()`: `lib/workspace.py`, `tests/test_workspace.py`
 - [ ] `scratchpad_directory_from_hook_input`: `lib/hook_envelopes.py`, `tests/test_hook_envelopes.py`
 - [ ] `load_config_from_environment(scratchpad_directory=...)`: `lib/config_loader.py`
-- [ ] Bash hook reads the field: `bin/command-policy-analyze-bash-command`; end-to-end allow/deny/redirect/sibling
-      cases in `tests/test_consumer_entrypoints.py`
-- [ ] Rendering: `sessionScratchpad:` line and `[no parser]` header wording in `lib/config.py`
-      (`explain()`, `_ALLOWED_COMMANDS_HEADER`), tests in `tests/test_config.py`
+- [ ] Bash hook reads the field: `bin/command-policy-analyze-bash-command`; end-to-end allow/deny/redirect/sibling cases
+      in `tests/test_consumer_entrypoints.py`
+- [ ] Rendering: `sessionScratchpad:` line and `[no parser]` header wording in `lib/config.py` (`explain()`,
+      `_ALLOWED_COMMANDS_HEADER`), tests in `tests/test_config.py`
 - [ ] Renderers parse stdin and pass the field: `bin/command-policy-render-session-start`,
       `bin/command-policy-render-subagent-start`; tests in `tests/test_consumer_entrypoints.py`
 - [ ] Knowledgebase: Scratchpad bullet in the `Workspace` section of
       `docs/knowledgebase/command-policy-decision-model.md`
-- [ ] Version bump 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit
-      as the code)
+- [ ] Version bump 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
+      the code)
 - [ ] Full suite green: `cd tests && nix-shell --run pytest`
 - [ ] Update status to completed

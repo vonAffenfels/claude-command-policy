@@ -11,6 +11,16 @@
         ]
       }
     ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "cat >> /tmp/claude-1001/-home-speckmaier-Projekte-intern-claude-command-policy/307cb844-c20f-406b-adf2-774c84bad6ee/scratchpad/hook-input.jsonl; echo >> /tmp/claude-1001/-home-speckmaier-Projekte-intern-claude-command-policy/307cb844-c20f-406b-adf2-774c84bad6ee/scratchpad/hook-input.jsonl"
+          }
+        ]
+      }
+    ],
     "SubagentStart": [
       {
         "hooks": [
