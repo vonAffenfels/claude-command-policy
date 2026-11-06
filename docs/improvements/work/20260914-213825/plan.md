@@ -14,7 +14,7 @@
 - Kind: decomposed
 - Depends on: 20260915-011123
 
-**You MUST also read:** `docs/improvements/improvement-20260914-195111-statement-value-object-refactor.md`
+**You MUST also read:** `docs/improvements/work/20260914-195111/plan.md`
 
 ## This Improvement's Objective
 

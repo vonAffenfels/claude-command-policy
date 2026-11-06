@@ -13,7 +13,7 @@
 - Impl finished: 2026-09-17T18:37:45+02:00
 - Depends on: 20260914-213153
 
-**You MUST also read:** `docs/improvements/improvement-20260914-195111-statement-value-object-refactor.md` — this leaf
+**You MUST also read:** `docs/improvements/work/20260914-195111/plan.md` — this leaf
 is part of that trunk's subject. The trunk's `## Shared Context (For Leaves)` carries the copy-on-write idiom, the
 policy pipeline and its Pass ordering, the naming decisions, the corrected code coordinates, the test-suite split and
 the environment constraints. Do not re-derive any of it.

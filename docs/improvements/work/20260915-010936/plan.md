@@ -13,7 +13,7 @@
 - Trunk: 20260914-195111
 - Kind: decomposed
 
-**You MUST also read:** `docs/improvements/improvement-20260914-195111-statement-value-object-refactor.md`
+**You MUST also read:** `docs/improvements/work/20260914-195111/plan.md`
 
 ## This Improvement's Objective
 
