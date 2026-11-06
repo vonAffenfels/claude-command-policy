@@ -162,8 +162,13 @@ production caller), and the `NEAR_MISS_REASON_TYPES` filtering in escalation_pol
   drop the now-unused `NEAR_MISS_REASON_TYPES`/`render` imports if nothing else uses them.
 - `lib/config.py` — `decision_for` wiring (bypass before the ordinary pipeline); its docstring.
 - `lib/session_audit.py` — `is_bypass_wrapped` delegates; module docstring's "bypass-policy-forced ask" sentence.
-- `lib/reason.py`, `lib/reason_renderer.py` — `NotEscalatedByAnUnrelatedBypassWrapper` docstring/clause wording if the
-  chain-hint scope changes (see Open Questions).
+- `lib/escalation_policy.py` `bypass_chain_hint` — drop the "only when a forcing categorical reason is present"
+  condition: any denied line that mentions the wrapper without being a bypass invocation gets the hint. With it,
+  `_FORCES_ASK_REASON_TYPES` and the `BlockedCommandInvoked`/`SensitivePathReferenced`/`RedirectOutsideAllowedPaths`
+  imports become unused — remove them.
+- `lib/reason.py` — `NotEscalatedByAnUnrelatedBypassWrapper` docstring: it accompanies ANY objection on a chained line,
+  not only a categorical one, and "escalates" now means passthrough. `lib/reason_renderer.py`'s clause ("bypass-policy
+  appears on this line but does not wrap this command - wrap it explicitly to escalate it") stays accurate — no change.
 - `bin/bypass-policy` — docstring outcome mapping.
 - `skills/config/SKILL.md` (§4 categorical/near-miss paragraphs ~L112-121, escape-hatch reference ~L295-300).
 - `docs/knowledgebase/command-policy-decision-model.md` — outcome table (L42-43), the "one guard bypass-policy cannot
@@ -173,6 +178,15 @@ production caller), and the `NEAR_MISS_REASON_TYPES` filtering in escalation_pol
 - `.claude-plugin/plugin.json`, `.claude-plugin/marketplace.json` — version 0.9.0 → 0.10.0 (behaviour change).
 - `README.md` already describes the passthrough-only behaviour ("let it fall through to claude-codes own command
   approval system") — no change.
+
+## Implementation Notes
+
+### Observed during exploration
+
+- `git commit -m "$(echo msg)"` (no wrapper) denies with `FilterUnprovable` on the git entry's `subcommand` rule, even
+  though `commit` is a literal pinned AHEAD of the substitution — the KB's "the shift bites only forward" rule says such
+  a value stays provable. Likely the parser-backed `value` filter treats the whole invocation as unprovable once any
+  argument is unknowable. Out of scope here; worth its own improvement.
 
 ## Test Architecture
 
@@ -191,7 +205,9 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
     (`bypass-policy echo "$(echo x)" && rm …` with `rm` blocked) → still `deny`. New coverage branches for each.
 - `tests/test_escalation_policy.py` — replace the seven `bypass_transform` unit tests (L25-101) with
   `bypass_passthrough` tests (recognised → passthrough; substitution → passthrough; chained/piped/backgrounded → None;
-  other program → None). Chain-hint tests stay, adjusted if its scope widens.
+  other program → None). Chain-hint: `test_bypass_chain_hint_is_none_for_an_ordinary_near_miss` flips to "augments an
+  ordinary near-miss on a chained line"; the other chain-hint tests stay. Spec suite gains a case:
+  `bypass-policy echo hi && some-unlisted-tool` denies AND carries `NotEscalatedByAnUnrelatedBypassWrapper`.
 - `tests/test_statement.py` — add `as_single_command_program` cases beside the `as_sole_invoked_program` ones
   (~L378-410): substitution in args → program; process substitution → program; list/pipeline/subshell/background → None.
   Delete the `arguments_source_text` tests (~L607-627).
@@ -199,21 +215,6 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
 - `tests/test_session_audit.py` — add `is_bypass_wrapped` with a substitution in the args → True.
 - `tests/test_hook_envelopes.py:101` — replace the stale `"bypass-policy cannot escalate this"` sample reason with a
   neutral one.
-
-## Implementation Notes
-
-### Open Questions
-
-- Chain-hint scope: `bypass_chain_hint` today only annotates a chained line whose denial carries a categorical reason
-  (blocked/sensitive/redirect). With bypass escalating EVERY objection, should the hint fire for any denied chained line
-  that mentions the wrapper? (To be discussed)
-
-### Observed during exploration
-
-- `git commit -m "$(echo msg)"` (no wrapper) denies with `FilterUnprovable` on the git entry's `subcommand` rule, even
-  though `commit` is a literal pinned AHEAD of the substitution — the KB's "the shift bites only forward" rule says such
-  a value stays provable. Likely the parser-backed `value` filter treats the whole invocation as unprovable once any
-  argument is unknowable. Out of scope here; worth its own improvement.
 
 ## Assumptions
 
@@ -257,6 +258,16 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
   would launder `bypass-policy true && rm -rf /`.
 - **Date:** 2026-11-06
 
+### Chain hint fires for every denial on a line the wrapper appears on but does not cover
+
+- **Chosen:** `bypass_chain_hint` adds `NotEscalatedByAnUnrelatedBypassWrapper` to any `deny` whose line mentions
+  `bypass-policy` without being a bypass invocation — not only to categorical denials.
+- **Rationale:** rationale not captured (operator accepted the recommendation: since wrapping now escalates every
+  objection, "wrap it explicitly to escalate it" is the right pointer for any denied chained command).
+- **Rejected alternatives:** keep it categorical-only — a chained command that is merely not allow-listed would get no
+  pointer to the fix.
+- **Date:** 2026-11-06
+
 ## Success Criteria
 
 - `bypass-policy git commit -m "$(echo msg)"`, `bypass-policy ls <(echo x)`, `bypass-policy rm x` with `rm` blocked, and
@@ -266,6 +277,7 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
   when `rm` is not allowed.
 - `add-allow-policy` behaviour is unchanged (its whole test batch passes untouched).
 - `session_audit` counts a substitution-carrying bypass line as a bypass.
+- `bypass-policy echo hi && some-unlisted-tool` denies and its reason carries the chain hint.
 - KB, `skills/config/SKILL.md` and `bin/bypass-policy` describe passthrough-only bypass; no mention of a bypass-forced
   `ask` remains outside `docs/improvements/`.
 - Version 0.10.0 in both `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, in the same commit as the
@@ -281,6 +293,10 @@ no filesystem config needed (`assert_decision` helper in `tests/test_permission_
       branches (`tests/test_permission_decisions.py`) — red
 - [ ] Replace `bypass_transform` with `is_bypass_invocation` + `bypass_passthrough`, rewrite its unit tests
       (`lib/escalation_policy.py`, `tests/test_escalation_policy.py`); `bypass_chain_hint` uses `is_bypass_invocation`
+- [ ] Widen `bypass_chain_hint` to every denial: flip its near-miss unit test, add the spec case
+      (`bypass-policy echo hi && some-unlisted-tool` → deny + hint), remove `_FORCES_ASK_REASON_TYPES` and its
+      now-unused imports, reword the `NotEscalatedByAnUnrelatedBypassWrapper` docstring (`lib/escalation_policy.py`,
+      `lib/reason.py`, `tests/test_escalation_policy.py`, `tests/test_permission_decisions.py`)
 - [ ] Wire `bypass_passthrough` before the ordinary pipeline in `Config.decision_for`; delete the three re-analysis
       tests (`lib/config.py`, `tests/test_config.py`) — spec suite green
 - [ ] Remove `Command.arguments_source_text` and its tests; drop unused imports in `lib/escalation_policy.py`
