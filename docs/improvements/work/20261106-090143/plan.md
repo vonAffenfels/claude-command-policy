@@ -3,7 +3,7 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-review
+- Status: completed
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T09:01:49+01:00
@@ -316,4 +316,4 @@ built filter itself. `pytest` is not auto-allowed under `nix-shell --run`, so th
       update the git worked example — `docs/knowledgebase/command-policy-decision-model.md`
 - [x] Bump version 0.8.0 → 0.9.0 (0.8.0 had already shipped on main) in `.claude-plugin/plugin.json` and
       `.claude-plugin/marketplace.json` in the same commit as the plugin-content change
-- [ ] Update status to completed
+- [x] Update status to completed
