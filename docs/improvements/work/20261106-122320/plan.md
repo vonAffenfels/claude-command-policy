@@ -3,10 +3,11 @@
 ## Meta
 
 - Related Ticket: PHPT-582
-- Status: planned
+- Status: ready-to-implement
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T12:23:26+01:00
+- Plan finished: 2026-11-06T12:45:34+01:00
 - Merge target: main
 
 ## This Improvement's Objective
