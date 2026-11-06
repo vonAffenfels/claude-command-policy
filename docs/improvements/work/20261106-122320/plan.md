@@ -3,7 +3,7 @@
 ## Meta
 
 - Related Ticket: PHPT-582
-- Status: in-review
+- Status: completed
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T12:23:26+01:00
@@ -271,4 +271,4 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
 - [x] Version bump 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
       the code)
 - [x] Full suite green: `cd tests && nix-shell --run pytest`
-- [ ] Update status to completed
+- [x] Update status to completed
