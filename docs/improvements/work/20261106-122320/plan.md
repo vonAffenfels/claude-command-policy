@@ -3,12 +3,13 @@
 ## Meta
 
 - Related Ticket: PHPT-582
-- Status: in-progress
+- Status: in-review
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T12:23:26+01:00
 - Plan finished: 2026-11-06T12:45:34+01:00
 - Impl started: 2026-11-06T12:49:28+01:00
+- Impl finished: 2026-11-06T12:52:38+01:00
 - Merge target: main
 
 ## This Improvement's Objective
@@ -121,6 +122,11 @@ scratchpad access for those tools).
     path passes the hook-side check (`ask`) but would fail the write side's re-check. Rare; accepted.
     `CLAUDE_CODE_SESSION_ID` is in the Bash env, but rebuilding the path from it is exactly the layout re-derivation
     rejected above.
+
+- **Implementation deviations:** manifests were already at 0.10.0 on `main` (an earlier improvement took it), so the
+  bump went 0.10.0 → 0.11.0. The docstring mentions in `bin/bypass-policy` / `lib/escalation_policy.py` did not contain
+  the old wording; the one actual docstring with it, `lib/reason.py` (`ArgumentPathOutsideAllowedPaths`), was updated.
+  Full suite: 1094 passed.
 
 ## Test Architecture
 
@@ -246,23 +252,23 @@ assert json.loads(result.stdout)["hookSpecificOutput"]["permissionDecision"] == 
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] `PathResolutionContext` scratchpad root: `lib/path_resolution.py`, tests in `tests/test_path_resolution.py`
-- [ ] `Workspace` carries the scratchpad into `path_resolution()`: `lib/workspace.py`, `tests/test_workspace.py`
-- [ ] `scratchpad_directory_from_hook_input`: `lib/hook_envelopes.py`, `tests/test_hook_envelopes.py`
-- [ ] `load_config_from_environment(scratchpad_directory=...)`: `lib/config_loader.py`
-- [ ] Bash hook reads the field: `bin/command-policy-analyze-bash-command`; end-to-end allow/deny/redirect/sibling cases
+- [x] Update status to in-progress
+- [x] `PathResolutionContext` scratchpad root: `lib/path_resolution.py`, tests in `tests/test_path_resolution.py`
+- [x] `Workspace` carries the scratchpad into `path_resolution()`: `lib/workspace.py`, `tests/test_workspace.py`
+- [x] `scratchpad_directory_from_hook_input`: `lib/hook_envelopes.py`, `tests/test_hook_envelopes.py`
+- [x] `load_config_from_environment(scratchpad_directory=...)`: `lib/config_loader.py`
+- [x] Bash hook reads the field: `bin/command-policy-analyze-bash-command`; end-to-end allow/deny/redirect/sibling cases
       in `tests/test_consumer_entrypoints.py`
-- [ ] Rendering: `sessionScratchpad:` line and `[no parser]` header wording in `lib/config.py` (`explain()`,
+- [x] Rendering: `sessionScratchpad:` line and `[no parser]` header wording in `lib/config.py` (`explain()`,
       `_ALLOWED_COMMANDS_HEADER`), tests in `tests/test_config.py`
-- [ ] Denial wording: `RedirectOutsideAllowedPaths` / `ArgumentPathOutsideAllowedPaths` clauses in
+- [x] Denial wording: `RedirectOutsideAllowedPaths` / `ArgumentPathOutsideAllowedPaths` clauses in
       `lib/reason_renderer.py` name the session scratchpad; tests in `tests/test_reason_renderer.py`; docstring mentions
       in `bin/bypass-policy` and `lib/escalation_policy.py`
-- [ ] Renderers parse stdin and pass the field: `bin/command-policy-render-session-start`,
+- [x] Renderers parse stdin and pass the field: `bin/command-policy-render-session-start`,
       `bin/command-policy-render-subagent-start`; tests in `tests/test_consumer_entrypoints.py`
-- [ ] Knowledgebase: Scratchpad bullet in the `Workspace` section of
+- [x] Knowledgebase: Scratchpad bullet in the `Workspace` section of
       `docs/knowledgebase/command-policy-decision-model.md`
-- [ ] Version bump 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
+- [x] Version bump 0.9.0 → 0.10.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` (same commit as
       the code)
-- [ ] Full suite green: `cd tests && nix-shell --run pytest`
+- [x] Full suite green: `cd tests && nix-shell --run pytest`
 - [ ] Update status to completed
