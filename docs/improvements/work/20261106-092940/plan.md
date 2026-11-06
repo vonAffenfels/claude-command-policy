@@ -3,7 +3,7 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-review
+- Status: completed
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T09:29:46+01:00
@@ -264,4 +264,4 @@ Three parts; the first two are code, the third is the guidance that makes sessio
       `bin/bypass-policy`
 - [x] Version bump 0.7.0 → 0.8.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json`, in the same
       commit as the content change; run `cd tests && nix-shell --run pytest`
-- [ ] Update status to completed
+- [x] Update status to completed
