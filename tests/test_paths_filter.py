@@ -70,13 +70,21 @@ def test_all_detected_paths_must_match_for_the_filter_to_pass():
     assert filter_.matches(ParsedResult(paths_for_filtering=one_does_not)) is False
 
 
-def test_explain_names_it_as_a_paths_restriction():
+def test_explain_with_no_allowed_paths_says_no_path_argument_is_permitted():
     filter_ = PathsFilter.from_definition({"exactly": []}, context())
 
-    assert filter_.explain() == "paths filter restricting which paths this entry allows"
+    assert filter_.explain() == "must have no path argument"
 
 
-def test_derive_alternative_points_to_an_allowed_prefix():
-    filter_ = PathsFilter.from_definition({"exactly": []}, context())
+def test_explain_lists_the_allowed_paths():
+    filter_ = PathsFilter.from_definition({"exactly": ["b.txt", "a.txt"]}, context())
 
-    assert filter_.derive_alternative() == "use a path under one of the allowed prefixes"
+    assert filter_.explain() == (
+        "every path argument, if any, must be one of: `/home/user/project/a.txt`, `/home/user/project/b.txt`"
+    )
+
+
+def test_paths_filters_with_the_same_allowed_paths_are_equal():
+    assert PathsFilter.from_definition({"exactly": ["a"]}, context()) == PathsFilter.from_definition(
+        {"exactly": ["a"]}, context()
+    )

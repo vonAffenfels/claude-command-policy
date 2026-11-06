@@ -68,10 +68,26 @@ def test_an_unknown_filter_type_degrades_to_an_invalid_filter_instead_of_raising
 def test_explain_delegates_to_the_matcher_with_the_actions_own_kind():
     filter_ = Filter.from_definition({"type": "parameterRegex", "pattern": "--force", "action": "block"})
 
-    assert filter_.explain() == "parameterRegex block pattern '--force'"
+    assert filter_.explain() == "the arguments, joined by spaces, must not match `--force`"
 
 
-def test_derive_alternative_delegates_to_the_matcher_with_the_actions_own_kind():
-    filter_ = Filter.from_definition({"type": "optionPresent", "option": "--force", "action": "block"})
+def test_an_invalid_filter_explains_that_it_is_broken_and_why():
+    filter_ = Filter.from_definition({"type": "madeUp"})
 
-    assert filter_.derive_alternative() == "the same command without the '--force' option"
+    assert filter_.explain().startswith("broken rule, this entry never applies: ")
+    assert "madeUp" in filter_.explain()
+
+
+def test_a_nested_command_filter_explains_its_requirement_and_optional_depth():
+    assert Filter.from_definition({"type": "nestedCommand"}).explain() == (
+        "every wrapped command must itself be auto-allowed (at least one required)"
+    )
+    assert Filter.from_definition({"type": "nestedCommand", "maxDepth": 2}).explain().endswith("; max depth 2)")
+
+
+def test_filters_built_from_the_same_definition_are_equal():
+    definition = {"type": "namedValue", "name": "subcommand", "pattern": "^a$", "action": "required"}
+
+    assert Filter.from_definition(definition) == Filter.from_definition(dict(definition))
+    assert Filter.from_definition(definition) != Filter.from_definition({**definition, "pattern": "^b$"})
+    assert Filter.from_definition(definition) != Filter.from_definition({**definition, "action": "block"})

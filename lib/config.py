@@ -68,6 +68,19 @@ _DECOMPOSITION_ADVISORY = (
 # DURABLE escalation route unconditionally, not only after a denial routes it
 # to the find-auto-allowed-command agent - so it reaches SessionStart/
 # SubagentStart directly too, where a session can offer it proactively.
+_ALLOWED_COMMANDS_HEADER = "\n".join(
+    (
+        "AUTO-ALLOWED COMMANDS — a command is auto-allowed when ONE entry for its program accepts it; every rule under"
+        " that entry must hold.",
+        "Any $VAR denies unless the entry lists it as a permitted variable. A $(...) must itself be auto-allowed; its"
+        " result is unknown, so the command denies if that result lands where a path could be or where a rule must"
+        " inspect it.",
+        "[no parser] = the entry has no command parser, so every argument that looks like a path, options included, is"
+        " treated as one and must stay inside the project or an allowed prefix; such an entry therefore always denies"
+        " a $(...) argument.",
+    )
+)
+
 _ESCALATION_ADVISORY = (
     "ESCALATION - when no auto-allowed command does the job:\n"
     "- Do not ask the operator to run a command (no \"please run !cmd\"). Run it yourself as "
@@ -324,7 +337,7 @@ class Config:
     def _explain_allowed_commands(self):
         if not self._allowed_commands:
             return "No commands are auto-allowed; every command is denied with a hint."
-        lines = ["AUTO-ALLOWED COMMANDS:"]
+        lines = [_ALLOWED_COMMANDS_HEADER]
         lines.extend(entry.explain() for entry in self._allowed_commands)
         return "\n".join(lines)
 

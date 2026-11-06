@@ -48,8 +48,9 @@ class Action:
         matched = outcome is MatchOutcome.MATCHED
         return matched if self.is_required else not matched
 
-    def explain(self):
-        return self._kind
+    @property
+    def must_phrase(self):
+        return "must" if self.is_required else "must not"
 
     def __eq__(self, other):
         if not isinstance(other, Action):

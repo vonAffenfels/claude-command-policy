@@ -146,13 +146,23 @@ class UnknowablePathArgument:
 
 @dataclass(frozen=True)
 class FilterRejected:
-    """CASE B: one of the matched entry's own filters rejected this
-    invocation - `filter_type` names which kind (e.g. 'optionPresent'),
-    never the pattern/option itself, keeping this Reason small enough to
-    construct by hand in a test."""
+    """CASE B: one of the matched entry's own filters failed on the visible
+    text of this invocation. Carries the built filter itself (a value
+    object); the renderer asks it to `explain()` the rule."""
 
     program: str
-    filter_type: str
+    filter: object
+
+
+@dataclass(frozen=True)
+class FilterUnprovable:
+    """CASE B, unknowable variant: one of the matched entry's own filters
+    could not be proven because the invocation contains `$VAR`/`$(...)` -
+    the visible text may well satisfy it. Mirrors the
+    UnknowablePathArgument / ArgumentPathOutsideAllowedPaths split."""
+
+    program: str
+    filter: object
 
 
 NEAR_MISS_REASON_TYPES = (
@@ -163,6 +173,7 @@ NEAR_MISS_REASON_TYPES = (
     ArgumentPathOutsideAllowedPaths,
     UnknowablePathArgument,
     FilterRejected,
+    FilterUnprovable,
 )
 
 

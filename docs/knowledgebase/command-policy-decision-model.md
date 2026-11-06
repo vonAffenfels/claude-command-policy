@@ -104,10 +104,13 @@ place, `reason_renderer.render(reasons)`, so wording can change without touching
   `RedirectOutsideAllowedPaths`.
 - `NEAR_MISS_REASON_TYPES` — a specific allowedCommands entry's own vouching attempt failed: `ProgramNotAllowListed` (no
   entry names the program at all), `SubstitutedCommandNotAllowListed`, `ParserCouldNotInterpretInvocation`,
-  `DisallowedVariableReferenced`, `ArgumentPathOutsideAllowedPaths`, `UnknowablePathArgument`, `FilterRejected`. The
-  last two are deliberately distinct facts: one says a path WAS resolved and sits outside the boundary, the other that
-  no path can be named at all because something unknowable occupies a path operand — different situations with different
-  fixes, so they are not collapsed into one reason carrying a placeholder path.
+  `DisallowedVariableReferenced`, `ArgumentPathOutsideAllowedPaths`, `UnknowablePathArgument`, `FilterRejected`,
+  `FilterUnprovable`. Two pairs are deliberately distinct facts: `ArgumentPathOutsideAllowedPaths` says a path WAS
+  resolved and sits outside the boundary, `UnknowablePathArgument` that no path can be named at all because something
+  unknowable occupies a path operand; `FilterRejected` says a rule failed on the visible text, `FilterUnprovable` that
+  it could not be proven because the invocation contains `$VAR`/`$(...)` (the visible text may satisfy it). Different
+  situations with different fixes, so they are not collapsed into one reason carrying a placeholder. Both filter reasons
+  carry the built filter, which renders its own rule line.
 
 **The list is flat and heterogeneous on purpose**: a single command can carry a categorical objection and a near-miss
 objection at once (or two categorical objections — a blocked command AND a sensitive path — at once), and all of them
@@ -946,13 +949,13 @@ value expected — a path, a filename list, a commit message, not instructions a
 into the second command literally. Never pipe it onward unexamined. This surface is not new (any command substitution
 already reads program output), but decomposition increases how often it is exercised deliberately.
 
-**Known limit on how far the recognition rule can be followed from the rendered rules alone.** `Config.explain()`
-renders a filtered entry only as `"<program>: must pass N filter(s)"` — it does not name which filters, so for an entry
-like `git`, `find`, `sed`, or `awk`, the rendered rules say a producer entry exists and must pass filters without saying
-which invocation shapes comply. Checking a producer command "against the rendered rules" (the non-case above) is
-therefore sometimes a matter of reasoning from the entry's name and the rendered rules' other context rather than
-reading an exact rule; a wrong guess is still caught by the engine denying it again, the same self-correction loop the
-rest of this outcome model relies on.
+**What the rendered rules say.** `Config.explain()` renders every filtered entry as one indented rule line per filter,
+each stating mechanically the target it reads, must / must not, and the pattern verbatim (for example
+``value `subcommand` must be present and must match `^(status|log|…)$` ``). An entry without a `commandParser` (and
+without `hasNoPathParameters`) carries a `[no parser]` tag, and the header states once the rules that hold for every
+entry: a `$VAR` denies unless the entry lists it, and a `$(...)` must itself be auto-allowed and denies wherever its
+unknown result lands in a path slot or a rule-inspected slot. A denial's `FilterRejected` / `FilterUnprovable` reason
+renders the same rule line for the filter that failed, so the recognition rule can be applied from the text alone.
 
 **Do not author a static command-equivalence table for this.** Command shapes and the config that allows them change
 constantly; a hand-written mapping would rot like hand-written prose. The two examples below illustrate the recognition
@@ -960,12 +963,12 @@ rule — they are not a maintained mapping of denied commands to their replaceme
 
 **Worked example, measured against a live merged config (re-measure before relying on it — the config is a local file
 and changes):** `git add $(git ls-files -m)` and `git commit -m "$(echo msg)"` both deny with
-`FilterRejected(program='git', filter_type='namedValue')`, because the operator's `git` entry uses a `provided`
-(external) parser and a `required` `namedValue` filter — under the settled "unknowable content under an external parser"
-rule, any unknowable content anywhere in the invocation defeats a `required` filter, with no knowable-only re-parse.
-Both decompose cleanly: `git ls-files -m` and `git commit -m "literal message"` allow on their own, and
-`git add <a real literal path>` allows once the first command's output is read and substituted in literally. Re-run via
-`Config.decision_for` against the merged config to confirm before citing these as current.
+`FilterUnprovable(program='git', filter=<the namedValue subcommand rule>)`, because the operator's `git` entry uses a
+`provided` (external) parser and a `required` `namedValue` filter — under the settled "unknowable content under an
+external parser" rule, any unknowable content anywhere in the invocation defeats a `required` filter, with no
+knowable-only re-parse. Both decompose cleanly: `git ls-files -m` and `git commit -m "literal message"` allow on their
+own, and `git add <a real literal path>` allows once the first command's output is read and substituted in literally.
+Re-run via `Config.decision_for` against the merged config to confirm before citing these as current.
 
 ## Session Auditing: audit-session-policy
 

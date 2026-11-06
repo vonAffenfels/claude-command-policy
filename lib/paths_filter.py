@@ -33,7 +33,15 @@ class PathsFilter:
         return all(path in self._exactly for path in paths)
 
     def explain(self):
-        return "paths filter restricting which paths this entry allows"
+        if not self._exactly:
+            return "must have no path argument"
+        allowed = ", ".join(f"`{path}`" for path in sorted(self._exactly))
+        return f"every path argument, if any, must be one of: {allowed}"
 
-    def derive_alternative(self):
-        return "use a path under one of the allowed prefixes"
+    def __eq__(self, other):
+        if not isinstance(other, PathsFilter):
+            return NotImplemented
+        return self._exactly == other._exactly
+
+    def __hash__(self):
+        return hash(self._exactly)

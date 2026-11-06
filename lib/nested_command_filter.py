@@ -43,7 +43,15 @@ class NestedCommandFilter:
         return all(evaluate_nested(entry.text, depth + 1).is_allow for entry in nested)
 
     def explain(self):
-        return "nestedCommand filter requiring every published sub-command to itself be allowed"
+        line = "every wrapped command must itself be auto-allowed (at least one required"
+        if self._max_depth is not None:
+            line += f"; max depth {self._max_depth}"
+        return line + ")"
 
-    def derive_alternative(self):
-        return "a wrapper invocation whose own sub-command is independently allowed"
+    def __eq__(self, other):
+        if not isinstance(other, NestedCommandFilter):
+            return NotImplemented
+        return self._max_depth == other._max_depth
+
+    def __hash__(self):
+        return hash(self._max_depth)

@@ -85,6 +85,7 @@ from reason import (
     ArgumentPathOutsideAllowedPaths,
     DisallowedVariableReferenced,
     FilterRejected,
+    FilterUnprovable,
     ParserCouldNotInterpretInvocation,
     ProgramNotAllowListed,
     SubstitutedCommandNotAllowListed,
@@ -183,8 +184,9 @@ class AllowedCommandPolicy(Policy):
                 return UnknowablePathArgument(entry.program_label)
 
         for definition, built_filter in zip(entry.filters, entry.built_filters):
-            if not self._filter_passes(definition, built_filter, entry.parser, parsed, knowability):
-                return FilterRejected(entry.program_label, definition.get("type", ""))
+            rejection = self._filter_rejection(entry, definition, built_filter, parsed, knowability)
+            if rejection is not None:
+                return rejection
 
         return None
 
@@ -320,8 +322,10 @@ class AllowedCommandPolicy(Policy):
             return None
         return parser.interpret(raw_output)
 
-    def _filter_passes(self, definition, built_filter, parser, parsed, knowability):
-        """Consumes `knowability` per the improvement's asymmetric rule: a
+    def _filter_rejection(self, entry, definition, built_filter, parsed, knowability):
+        """None when the filter holds; `FilterRejected` when it failed on the
+        visible text; `FilterUnprovable` when it could not be proven because
+        the invocation contains unknowable content. Consumes `knowability` per the improvement's asymmetric rule: a
         `block` filter can never prove absence next to unknowable content
         (any argument, dash-prefixed included); a `required` INDEX filter
         (argumentAtIndex/positionalArgAtIndex) is defeated only for a target
@@ -338,39 +342,52 @@ class AllowedCommandPolicy(Policy):
         `InvalidFilter` standing in for a defect the entry's own
         construction could not build) is a `Filter{Matcher, Action}` reused
         across both an ordinary and a knowable-only re-parse."""
+        program = entry.program_label
+
+        def rejected():
+            return FilterRejected(program, built_filter)
+
+        def unprovable():
+            return FilterUnprovable(program, built_filter)
+
         if isinstance(built_filter, PathsFilter):
-            return built_filter.matches(parsed)
+            return None if built_filter.matches(parsed) else rejected()
 
         if isinstance(built_filter, NestedCommandFilter):
             if knowability.defeats_absence_proof():
-                return False
-            return built_filter.matches(parsed, self._evaluate_nested_text, self._depth, self._default_max_depth)
+                return unprovable()
+            holds = built_filter.matches(parsed, self._evaluate_nested_text, self._depth, self._default_max_depth)
+            return None if holds else rejected()
 
         if definition.get("action", "block") == "block":
             if knowability.defeats_absence_proof():
-                return False
-            return built_filter.matches(parsed)
+                return unprovable()
+            return None if built_filter.matches(parsed) else rejected()
 
-        return self._required_filter_passes(definition, built_filter, parser, parsed, knowability)
+        return self._required_filter_rejection(
+            definition, built_filter, entry.parser, parsed, knowability, rejected, unprovable
+        )
 
-    def _required_filter_passes(self, definition, built_filter, parser, parsed, knowability):
+    def _required_filter_rejection(
+        self, definition, built_filter, parser, parsed, knowability, rejected, unprovable
+    ):
         filter_type = definition.get("type")
 
         if filter_type in _INDEX_MATCHER_TYPES:
             scheme = IndexScheme.COMBINED if filter_type == "argumentAtIndex" else IndexScheme.POSITIONAL
             shift_position = knowability.first_shifting_position(scheme)
             if shift_position is not None and definition.get("index", 0) >= shift_position:
-                return False
-            return built_filter.matches(parsed)
+                return unprovable()
+            return None if built_filter.matches(parsed) else rejected()
 
         if not knowability.defeats_absence_proof():
-            return built_filter.matches(parsed)
+            return None if built_filter.matches(parsed) else rejected()
 
         if not hasattr(parser, "parse"):
-            return False  # external parser: no knowable-only re-parse attempted
+            return unprovable()  # external parser: no knowable-only re-parse attempted
 
         knowable_parsed = parser.parse(knowability.knowable_texts())
-        return built_filter.matches(knowable_parsed)
+        return None if built_filter.matches(knowable_parsed) else rejected()
 
 
 def _entry_matches_program(entry, command_word):

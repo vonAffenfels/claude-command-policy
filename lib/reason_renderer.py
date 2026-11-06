@@ -39,6 +39,7 @@ from reason import (
     CommandSubstitutionPresent,
     DisallowedVariableReferenced,
     FilterRejected,
+    FilterUnprovable,
     NotEscalatedByAnUnrelatedBypassWrapper,
     ParserCouldNotInterpretInvocation,
     ProgramNotAllowListed,
@@ -114,7 +115,11 @@ _CLAUSE_BUILDERS = {
         "path operand - substitute the real value first, or choose a different program that "
         "genuinely takes no path operands"
     ),
-    FilterRejected: lambda r: f"{r.program}: a {r.filter_type} filter rejected this invocation",
+    FilterRejected: lambda r: f"{r.program}: rejected by the rule: {r.filter.explain()}",
+    FilterUnprovable: lambda r: (
+        f"{r.program}: could not prove the rule {r.filter.explain()} because the invocation contains "
+        "$VAR or $(...) - run the value-producing command first and write its value literally"
+    ),
     NotEscalatedByAnUnrelatedBypassWrapper: lambda r: (
         "bypass-policy appears on this line but does not wrap this command - wrap it "
         "explicitly to escalate it"

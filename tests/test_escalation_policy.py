@@ -7,8 +7,10 @@ from pathlib import Path
 
 from config import Config
 from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_transform
+from filter import Filter
 from permission_decision import PermissionDecision
 from reason import (
+    FilterUnprovable,
     AddAllowPolicyEntryChangesNothing,
     AddAllowPolicyExampleRejected,
     AddAllowPolicyGrammarViolation,
@@ -41,6 +43,18 @@ def test_bypass_transform_passes_through_an_ordinary_near_miss():
 
     result = bypass_transform(
         statement, ordinary, lambda text: PermissionDecision.deny((ProgramNotAllowListed("some-tool"),))
+    )
+
+    assert result.decision == "passthrough"
+
+
+def test_bypass_transform_passes_through_a_filter_that_could_not_be_proven():
+    statement = Statement.from_command("bypass-policy git commit -m x")
+    ordinary = PermissionDecision.deny((ProgramNotAllowListed("bypass-policy"),))
+    unprovable_rule = Filter.from_definition({"type": "namedValue", "name": "subcommand", "pattern": "^commit$"})
+
+    result = bypass_transform(
+        statement, ordinary, lambda text: PermissionDecision.deny((FilterUnprovable("git", unprovable_rule),))
     )
 
     assert result.decision == "passthrough"

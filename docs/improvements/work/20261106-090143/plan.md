@@ -3,12 +3,13 @@
 ## Meta
 
 - Related Ticket: None
-- Status: in-progress
+- Status: in-review
 - Created: 2026-11-06
 - Updated: 2026-11-06
 - Plan started: 2026-11-06T09:01:49+01:00
 - Plan finished: 2026-11-06T10:49:01+01:00
 - Impl started: 2026-11-06T11:01:46+01:00
+- Impl finished: 2026-11-06T11:08:19+01:00
 - Merge target: main
 
 ## This Improvement's Objective
@@ -285,28 +286,34 @@ every layer is already testable from constructed values:
 
 ## Implementation TODO
 
-- [ ] Update status to in-progress
-- [ ] Rule lines per matcher kind + matcher value equality; delete `derive_alternative` — `lib/matcher.py`,
+<!-- Implementation note: in tests, the "cannot be evaluated" cases (unknown type/action, optionValue on an option the
+parser never populates, nestedCommand under a parser that publishes nothing) reject through an `InvalidFilter`, so the
+migrated assertions use `assert_rejected_by_filter(result, program, FilterClass)`; only rule-centred cases compare the
+built filter itself. `pytest` is not auto-allowed under `nix-shell --run`, so the suite was run with a one-off
+`bypass-policy`. Durable proposal for the operator: add-allow-policy --scope project --intent "Run the pytest suite" --example "nix-shell --run pytest" '<nix-shell entry allowing pytest>'. -->
+
+- [x] Update status to in-progress
+- [x] Rule lines per matcher kind + matcher value equality; delete `derive_alternative` — `lib/matcher.py`,
       `lib/action.py`, `tests/test_matcher.py`
-- [ ] `Filter`/`InvalidFilter`/`PathsFilter`/`NestedCommandFilter` `explain()` + equality; delete `derive_alternative` —
+- [x] `Filter`/`InvalidFilter`/`PathsFilter`/`NestedCommandFilter` `explain()` + equality; delete `derive_alternative` —
       `lib/filter.py`, `lib/paths_filter.py`, `lib/nested_command_filter.py`, `tests/test_filter.py`,
       `tests/test_paths_filter.py`
-- [ ] `AllowedCommand.explain()` renders `[no parser]` / "takes no path arguments" / "any arguments" and indented rule
+- [x] `AllowedCommand.explain()` renders `[no parser]` / "takes no path arguments" / "any arguments" and indented rule
       lines from `built_filters` — `lib/allowed_command.py`, `tests/test_allowed_command.py`
-- [ ] AUTO-ALLOWED COMMANDS header (composition rule, `$VAR`/`$(...)` rules, `[no parser]` note) — `lib/config.py`,
+- [x] AUTO-ALLOWED COMMANDS header (composition rule, `$VAR`/`$(...)` rules, `[no parser]` note) — `lib/config.py`,
       `tests/test_config.py`
-- [ ] `FilterRejected(program, filter)` + new `FilterUnprovable(program, filter)` in `NEAR_MISS_REASON_TYPES`; renderer
+- [x] `FilterRejected(program, filter)` + new `FilterUnprovable(program, filter)` in `NEAR_MISS_REASON_TYPES`; renderer
       clauses — `lib/reason.py`, `lib/reason_renderer.py`, `tests/test_reason_renderer.py`
-- [ ] Replace `_filter_passes`/`_required_filter_passes` with `_filter_rejection` returning
+- [x] Replace `_filter_passes`/`_required_filter_passes` with `_filter_rejection` returning
       `None | FilterRejected | FilterUnprovable`; migrate the 17 existing `FilterRejected` assertions and add the
       git/echo verdict cases — `lib/allowed_command_policy.py`, `tests/test_allowed_command_policy.py`,
       `tests/test_permission_decisions.py`
-- [ ] Bypass routing check: a `FilterUnprovable`-only denial under `bypass-policy` is `passthrough` —
+- [x] Bypass routing check: a `FilterUnprovable`-only denial under `bypass-policy` is `passthrough` —
       `tests/test_escalation_policy.py`
-- [ ] Full suite (`cd tests && nix-shell --run pytest`, incl. `test_skill_drift.py`); run `bin/explain-policy` and
+- [x] Full suite (`cd tests && nix-shell --run pytest`, incl. `test_skill_drift.py`); run `bin/explain-policy` and
       compare against the Success Criteria
-- [ ] Knowledgebase: Reason list gains `FilterUnprovable`, replace the "Known limit … rendered rules alone" paragraph,
+- [x] Knowledgebase: Reason list gains `FilterUnprovable`, replace the "Known limit … rendered rules alone" paragraph,
       update the git worked example — `docs/knowledgebase/command-policy-decision-model.md`
-- [ ] Bump version 0.7.0 → 0.8.0 in `.claude-plugin/plugin.json` and `.claude-plugin/marketplace.json` in the same
-      commit as the plugin-content change
+- [x] Bump version 0.8.0 → 0.9.0 (0.8.0 had already shipped on main) in `.claude-plugin/plugin.json` and
+      `.claude-plugin/marketplace.json` in the same commit as the plugin-content change
 - [ ] Update status to completed

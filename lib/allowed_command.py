@@ -129,14 +129,18 @@ class AllowedCommand:
         return "<unresolved>"
 
     def explain(self):
-        label = self.program_label
-        if not self.filters:
-            explanation = f"- {label}: no filters — permits every invocation."
-        else:
-            explanation = f"- {label}: must pass {len(self.filters)} filter(s)."
+        has_no_parser = self.command_parser is None and not self.has_no_path_parameters
+        header = f"- {self.program_label}{' [no parser]' if has_no_parser else ''}:"
+        if not self.built_filters:
+            header += " any arguments."
+            if self.has_no_path_parameters:
+                header += " takes no path arguments."
+        elif self.has_no_path_parameters:
+            header += " takes no path arguments."
         if self.only_these_variables:
-            explanation += f" (only variables permitted: {', '.join(self.only_these_variables)})"
-        return explanation
+            header += f" (only variables permitted: {', '.join(self.only_these_variables)})"
+        rule_lines = (f"  - {built_filter.explain()}" for built_filter in self.built_filters)
+        return "\n".join((header, *rule_lines))
 
     def _fields(self):
         return (

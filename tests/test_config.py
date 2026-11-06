@@ -269,6 +269,14 @@ def test_explain_states_when_nothing_is_auto_allowed():
     assert "no commands are auto-allowed" in Config.defaults().explain().lower()
 
 
+def test_the_allowed_commands_header_states_the_shared_rules_exactly_once():
+    explanation = Config.from_dict({"allowedCommands": ["echo", "cat"]}).explain()
+
+    assert explanation.count("Any $VAR denies unless the entry lists it") == 1
+    assert explanation.count("[no parser] = the entry has no command parser") == 1
+    assert "must pass" not in explanation
+
+
 def test_explain_lists_each_auto_allowed_command():
     config = Config.from_dict({"allowedCommands": ["echo"]})
 

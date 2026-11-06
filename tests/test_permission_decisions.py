@@ -48,12 +48,16 @@ from pathlib import Path
 import pytest
 
 from config import Config
+from filter import Filter, InvalidFilter
+from nested_command_filter import NestedCommandFilter
+from paths_filter import PathsFilter
 from reason import (
     AddAllowPolicyGrammarViolation,
     ArgumentPathOutsideAllowedPaths,
     BlockedCommandInvoked,
     CommandSubstitutionPresent,
     FilterRejected,
+    FilterUnprovable,
     NotEscalatedByAnUnrelatedBypassWrapper,
     ParserCouldNotInterpretInvocation,
     ProgramNotAllowListed,
@@ -124,6 +128,18 @@ def assert_reason_includes(result, expected_reason) -> None:
     assert expected_reason in (result.reason or ()), (
         f"Expected reason list to include {expected_reason!r}\nActual: {result.reason!r}"
     )
+
+
+def assert_rejected_by_filter(result, program: str, filter_class) -> None:
+    """The decision carries a `FilterRejected` for `program` whose filter is a
+    `filter_class` - for the cases where WHICH rule failed is not the point
+    (a broken `InvalidFilter`, a structural `paths`/`nestedCommand` kind);
+    the cases that are about the rule itself build the filter and compare it
+    with `assert_reason_includes`."""
+    assert any(
+        isinstance(reason, FilterRejected) and reason.program == program and isinstance(reason.filter, filter_class)
+        for reason in (result.reason or ())
+    ), f"Expected a FilterRejected({program!r}, {filter_class.__name__})\nActual: {result.reason!r}"
 
 
 def assert_primary_reason(result, expected_reason) -> None:
@@ -552,7 +568,7 @@ def test_unknown_filter_action_never_vouches():
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("echo", "optionPresent"))
+    assert_rejected_by_filter(result, "echo", InvalidFilter)
 
 
 def test_unknown_filter_type_never_vouches():
@@ -572,7 +588,7 @@ def test_unknown_filter_type_never_vouches():
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("echo", "optionPresnt"))
+    assert_rejected_by_filter(result, "echo", InvalidFilter)
 
 
 def test_a_filter_that_cannot_be_evaluated_fails_closed_at_match_time():
@@ -825,7 +841,7 @@ def test_option_value_filter_naming_an_option_no_parser_consumes_never_vouches()
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("git", "optionValue"))
+    assert_rejected_by_filter(result, "git", InvalidFilter)
 
 
 # -- double-quoted-argument blindness (improvement-20260918-205740) ---------
@@ -1866,7 +1882,7 @@ def test_the_paths_filter_rejection_does_not_borrow_prefix_vocabulary(cwd_pinned
         )
 
         assert result.decision == "deny"
-        assert_reason_includes(result, FilterRejected("cat", "paths"))
+        assert_rejected_by_filter(result, "cat", PathsFilter)
         assert "prefix" not in render(result.reason).lower(), (
             f"paths-filter rejection borrowed the prefix vocabulary: {result.reason}"
         )
@@ -2178,7 +2194,7 @@ def test_a_propagated_command_is_checked_against_blocked_commands_with_every_out
     config["allowedCommands"].append("find")
 
     result = assert_decision("find . -name '*.tmp' | xargs rm", config, "deny")
-    assert_reason_includes(result, FilterRejected("xargs", "nestedCommand"))
+    assert_rejected_by_filter(result, "xargs", NestedCommandFilter)
 
 
 def test_an_external_script_parser_can_publish_a_command_that_reaches_blocked_commands():
@@ -2291,7 +2307,7 @@ def test_a_nested_command_filter_needs_a_parser_that_publishes_sub_commands():
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("xargs", "nestedCommand"))
+    assert_rejected_by_filter(result, "xargs", InvalidFilter)
 
 def test_a_named_value_filter_constrains_what_a_parser_published(cwd_pinned_inside_project):
     """`namedValue` is the only filter family that reads parser output, so it
@@ -2520,7 +2536,7 @@ def test_structured_parser_paths_filter_heuristic_still_rejects_an_undeclared_in
             },
             "deny",
         )
-        assert_reason_includes(result, FilterRejected("tool", "paths"))
+        assert_rejected_by_filter(result, "tool", PathsFilter)
 
 
 # --- A6, second pass: the parser-capability interface the rule needs ---
@@ -2560,7 +2576,7 @@ def test_option_value_filter_never_vouches_when_the_parser_declares_no_such_opti
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("git", "optionValue"))
+    assert_rejected_by_filter(result, "git", InvalidFilter)
 
 
 def test_option_value_filter_loads_when_the_parser_declares_the_option_consumes_a_value():
@@ -2609,7 +2625,7 @@ def test_option_value_filter_never_vouches_when_the_parser_declares_the_option_t
         },
         "deny",
     )
-    assert_reason_includes(result, FilterRejected("git", "optionValue"))
+    assert_rejected_by_filter(result, "git", InvalidFilter)
 
 
 def test_option_value_filter_loads_when_the_parser_declares_both_kinds_of_option():
@@ -2741,17 +2757,17 @@ def test_a_wrapped_blocked_command_is_denied_for_each_of_the_four_bundled_wrappe
     timeout_result = assert_decision(
         "timeout 10 rm -rf ./build", wrapper_config("timeout", blocked=["rm"]), "deny"
     )
-    assert_reason_includes(timeout_result, FilterRejected("timeout", "nestedCommand"))
+    assert_rejected_by_filter(timeout_result, "timeout", NestedCommandFilter)
 
     nix_result = assert_decision(
         "nix develop -c rm -rf ./build", wrapper_config("nix", blocked=["rm"]), "deny"
     )
-    assert_reason_includes(nix_result, FilterRejected("nix", "nestedCommand"))
+    assert_rejected_by_filter(nix_result, "nix", NestedCommandFilter)
 
     nix_shell_result = assert_decision(
         "nix-shell --run 'rm -rf ./build'", wrapper_config("nix-shell", blocked=["rm"]), "deny"
     )
-    assert_reason_includes(nix_shell_result, FilterRejected("nix-shell", "nestedCommand"))
+    assert_rejected_by_filter(nix_shell_result, "nix-shell", NestedCommandFilter)
 
 
 # =============================================================================
@@ -3083,7 +3099,7 @@ def test_exceeding_the_propagation_depth_limit_is_denied():
     config["allowedCommands"][0]["filters"] = [{"type": "nestedCommand", "maxDepth": 1}]
 
     result = assert_decision("xargs xargs xargs rm -rf ./build", config, "deny")
-    assert_reason_includes(result, FilterRejected("xargs", "nestedCommand"))
+    assert_rejected_by_filter(result, "xargs", NestedCommandFilter)
 
 
 # =============================================================================
@@ -3288,6 +3304,49 @@ def test_pnpm_implicit_script_run_is_canonicalized_for_a_named_value_filter():
 
     assert_decision("pnpm build", config, "allow")
     assert_decision("pnpm test", config, "deny")
+
+
+# -- a rejected rule vs a rule that could not be proven -----------------------
+
+_SUBCOMMAND_RULE_DEFINITION = {
+    "type": "namedValue",
+    "name": "subcommand",
+    "pattern": "^(status|commit)$",
+    "action": "required",
+}
+
+
+def _git_config_allowing_status_and_commit():
+    config = _provided_parser_config("git", [_SUBCOMMAND_RULE_DEFINITION])
+    config["allowedCommands"].append("echo")
+    config["commandSubstitutionResponse"] = "via-allowed-commands"
+    return config
+
+
+def test_a_subcommand_outside_the_rule_is_rejected_with_the_rule_it_broke():
+    result = assert_decision("git push", _git_config_allowing_status_and_commit(), "deny")
+
+    assert_reason_includes(result, FilterRejected("git", Filter.from_definition(_SUBCOMMAND_RULE_DEFINITION)))
+
+
+def test_a_rule_that_cannot_be_proven_next_to_a_substitution_is_unprovable_not_rejected():
+    result = assert_decision(
+        'git commit -m "$(echo msg)"', _git_config_allowing_status_and_commit(), "deny"
+    )
+
+    assert_reason_includes(result, FilterUnprovable("git", Filter.from_definition(_SUBCOMMAND_RULE_DEFINITION)))
+
+
+def test_a_block_rule_next_to_a_substitution_is_unprovable():
+    forbidden_flag_rule = {"type": "optionPresent", "option": "-n", "action": "block"}
+    config = {
+        "allowedCommands": [{"program": "echo", "hasNoPathParameters": True, "filters": [forbidden_flag_rule]}],
+        "commandSubstitutionResponse": "via-allowed-commands",
+    }
+
+    result = assert_decision("echo $(echo x)", config, "deny")
+
+    assert_reason_includes(result, FilterUnprovable("echo", Filter.from_definition(forbidden_flag_rule)))
 
 
 # =============================================================================

@@ -247,43 +247,67 @@ def test_option_present_matcher_reports_not_matched_when_the_option_is_absent():
 # -- explain()/derive_alternative() -------------------------------------------
 
 
-def test_pattern_matcher_explain_reproduces_todays_description_format():
+BLOCK = Action.from_definition({"action": "block"})
+REQUIRED = Action.from_definition({"action": "required"})
+
+
+def test_parameter_regex_rule_line_states_target_direction_and_pattern():
     matcher = ParameterRegexMatcher(pattern="--force")
-    action = Action.from_definition({"action": "block"})
 
-    assert matcher.explain(action) == "parameterRegex block pattern '--force'"
-
-
-def test_pattern_matcher_derive_alternative_under_block_names_the_part_to_drop():
-    matcher = ParameterRegexMatcher(pattern="--force")
-    action = Action.from_definition({"action": "block"})
-
-    assert matcher.derive_alternative(action) == "the same command without the part matching '--force'"
+    assert matcher.explain(BLOCK) == "the arguments, joined by spaces, must not match `--force`"
+    assert matcher.explain(REQUIRED) == "the arguments, joined by spaces, must match `--force`"
 
 
-def test_pattern_matcher_derive_alternative_under_required_names_the_part_to_add():
-    matcher = ParameterRegexMatcher(pattern="--force")
-    action = Action.from_definition({"action": "required"})
+def test_match_full_parameter_rule_line_distinguishes_required_from_block():
+    matcher = MatchFullParameterMatcher(pattern="--dry-run")
 
-    assert matcher.derive_alternative(action) == "the same command with an argument matching '--force'"
+    assert matcher.explain(REQUIRED) == "one argument must be exactly `--dry-run`"
+    assert matcher.explain(BLOCK) == "no argument may be exactly `--dry-run`"
 
 
-def test_option_present_matcher_explain_names_the_option_not_a_pattern():
+def test_positional_arg_regex_rule_line_names_the_positional_arguments():
+    matcher = PositionalArgRegexMatcher(pattern="^src/")
+
+    assert matcher.explain(REQUIRED) == "the positional arguments, joined by spaces, must match `^src/`"
+
+
+def test_argument_at_index_rule_line_states_index_and_that_the_target_must_be_present():
+    matcher = ArgumentAtIndexMatcher(index=1, pattern="^x$")
+
+    expected = "argument 1 (from 0, options counted) must be present and must match `^x$`"
+    assert matcher.explain(REQUIRED) == expected
+    assert matcher.explain(BLOCK).endswith("must be present and must not match `^x$`")
+
+
+def test_positional_arg_at_index_rule_line_states_index_and_that_options_are_skipped():
+    matcher = PositionalArgAtIndexMatcher(index=0, pattern="^parsers/[a-z-]+\\.py$")
+
+    expected = "positional argument 0 (from 0, options skipped) must be present and must match `^parsers/[a-z-]+\\.py$`"
+    assert matcher.explain(REQUIRED) == expected
+
+
+def test_named_value_rule_line_names_the_value():
+    matcher = NamedValueMatcher(name="subcommand", pattern="^(status|log)$")
+
+    assert matcher.explain(REQUIRED) == "value `subcommand` must be present and must match `^(status|log)$`"
+    assert matcher.explain(BLOCK) == "value `subcommand` must be present and must not match `^(status|log)$`"
+
+
+def test_option_value_rule_line_names_the_option():
+    matcher = OptionValueMatcher(option="-m", pattern="^feat")
+
+    assert matcher.explain(REQUIRED) == "option `-m` must be given and its value must match `^feat`"
+
+
+def test_option_present_rule_line_names_the_option_not_a_pattern():
     matcher = OptionPresentMatcher(option="--force")
-    action = Action.from_definition({"action": "block"})
 
-    assert matcher.explain(action) == "optionPresent block on option '--force'"
-
-
-def test_option_present_matcher_derive_alternative_under_block_says_without_the_option():
-    matcher = OptionPresentMatcher(option="--force")
-    action = Action.from_definition({"action": "block"})
-
-    assert matcher.derive_alternative(action) == "the same command without the '--force' option"
+    assert matcher.explain(BLOCK) == "option `--force` must not be given"
+    assert matcher.explain(REQUIRED) == "option `--force` must be given"
 
 
-def test_option_present_matcher_derive_alternative_under_required_says_with_the_option():
-    matcher = OptionPresentMatcher(option="--force")
-    action = Action.from_definition({"action": "required"})
-
-    assert matcher.derive_alternative(action) == "the same command with the '--force' option"
+def test_matchers_are_equal_by_kind_pattern_and_target():
+    assert NamedValueMatcher("a", "x") == NamedValueMatcher("a", "x")
+    assert NamedValueMatcher("a", "x") != NamedValueMatcher("b", "x")
+    assert ArgumentAtIndexMatcher(0, "x") != ArgumentAtIndexMatcher(1, "x")
+    assert ParameterRegexMatcher("x") != PositionalArgRegexMatcher("x")

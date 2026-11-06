@@ -74,16 +74,23 @@ def test_two_entries_built_from_equivalent_input_are_equal():
     assert AllowedCommand.from_entry("echo") == AllowedCommand.from_entry("echo")
 
 
-def test_a_bare_entry_explains_itself_as_placing_no_constraint():
-    entry = AllowedCommand.from_entry("echo")
-
-    explanation = entry.explain()
-
-    assert "echo" in explanation
-    assert "no filters" in explanation.lower()
+def test_a_bare_entry_without_a_parser_explains_itself_as_taking_any_arguments_and_carries_the_no_parser_tag():
+    assert AllowedCommand.from_entry("echo").explain() == "- echo [no parser]: any arguments."
 
 
-def test_a_filtered_entry_explains_its_filter_count():
+def test_an_entry_with_a_command_parser_carries_no_no_parser_tag():
+    entry = AllowedCommand.from_entry({"program": "git", "commandParser": {"type": "provided", "provided": "git"}})
+
+    assert "[no parser]" not in entry.explain()
+
+
+def test_an_entry_declaring_no_path_parameters_says_so_instead_of_the_no_parser_tag():
+    entry = AllowedCommand.from_entry({"program": "spawn-claude", "hasNoPathParameters": True})
+
+    assert entry.explain() == "- spawn-claude: any arguments. takes no path arguments."
+
+
+def test_a_filtered_entry_lists_one_indented_rule_line_per_filter():
     entry = AllowedCommand.from_entry(
         {
             "program": "echo",
@@ -94,10 +101,9 @@ def test_a_filtered_entry_explains_its_filter_count():
         }
     )
 
-    explanation = entry.explain()
-
-    assert "echo" in explanation
-    assert "2" in explanation
+    assert entry.explain() == (
+        "- echo [no parser]:\n  - option `-n` must not be given\n  - option `-e` must be given"
+    )
 
 
 def test_explain_states_which_variables_are_permitted_when_only_these_variables_is_set():

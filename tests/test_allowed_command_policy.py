@@ -9,6 +9,7 @@ from pathlib import Path
 from allowed_command import AllowedCommand
 from allowed_command_policy import AllowedCommandPolicy
 from config import Config
+from filter import InvalidFilter
 from pass_ import Pass
 from path_resolution import PathResolutionContext
 from reason import ParserCouldNotInterpretInvocation, ProgramNotAllowListed
@@ -94,7 +95,10 @@ def test_every_rejecting_entry_contributes_its_own_reason_when_none_vouches():
 
     assert policy.matches() is True
     reason = policy.decision().reason
-    assert FilterRejected("echo", "optionPresent") in reason
+    from filter import Filter
+
+    required_x = Filter.from_definition({"type": "optionPresent", "option": "--x", "action": "required"})
+    assert FilterRejected("echo", required_x) in reason
     assert DisallowedVariableReferenced("echo", "HOME") in reason
 
 
@@ -171,7 +175,10 @@ def test_optionvalue_filter_naming_an_option_the_default_parser_never_populates_
     )
 
     assert policy.matches() is True
-    assert FilterRejected("git", "optionValue") in policy.decision().reason
+    [reason] = policy.decision().reason
+    assert isinstance(reason, FilterRejected)
+    assert reason.program == "git"
+    assert isinstance(reason.filter, InvalidFilter)
 
 
 # -- programGlob matching (leaf 20260914-213652's cross-leaf hand-back,
@@ -450,4 +457,7 @@ def test_nested_command_filter_needs_a_parser_that_can_publish_sub_commands():
     )
 
     assert policy.matches() is True
-    assert FilterRejected("xargs", "nestedCommand") in policy.decision().reason
+    [reason] = policy.decision().reason
+    assert isinstance(reason, FilterRejected)
+    assert reason.program == "xargs"
+    assert isinstance(reason.filter, InvalidFilter)

@@ -4,6 +4,7 @@ rendered prose; see test_permission_decisions.py's assert_reason_includes/
 assert_primary_reason). This is the only place wording is pinned at all.
 """
 
+from filter import Filter
 from reason import (
     AddAllowPolicyEntryChangesNothing,
     AddAllowPolicyExampleRejected,
@@ -14,6 +15,7 @@ from reason import (
     CommandSubstitutionPresent,
     DisallowedVariableReferenced,
     FilterRejected,
+    FilterUnprovable,
     ParserCouldNotInterpretInvocation,
     ProgramNotAllowListed,
     RedirectOutsideAllowedPaths,
@@ -99,11 +101,31 @@ def test_renders_multiple_reasons_as_one_paragraph_primary_first():
     assert text.index("rm") < text.index("/vault/secret.txt")
 
 
+SUBCOMMAND_RULE = Filter.from_definition(
+    {"type": "namedValue", "name": "subcommand", "pattern": "^(status|commit)$", "action": "required"}
+)
+
+
+def test_a_rejected_filter_is_rendered_as_the_rule_it_broke():
+    text = render((FilterRejected("git", SUBCOMMAND_RULE),))
+
+    assert "git: rejected by the rule: value `subcommand` must be present and must match `^(status|commit)$`" in text
+
+
+def test_an_unprovable_filter_names_the_unknowable_content_and_the_decomposition_route():
+    text = render((FilterUnprovable("git", SUBCOMMAND_RULE),))
+
+    assert "value `subcommand` must be present and must match `^(status|commit)$`" in text
+    assert "$VAR or $(...)" in text
+    assert "run the value-producing command first" in text
+
+
 def test_renders_every_reason_kind_without_crashing():
     """Not a wording pin for each - just proof every kind has a clause, so a
     newly-added Reason subtype that forgets to register with the renderer
     fails loudly (a repr fallback) rather than at some unrelated call site.
     """
+    echo_flag_rule = Filter.from_definition({"type": "optionPresent", "option": "--x", "action": "block"})
     every_kind = (
         SensitivePathReferenced("/x"),
         BlockedCommandInvoked("rm"),
@@ -115,7 +137,8 @@ def test_renders_every_reason_kind_without_crashing():
         ParserCouldNotInterpretInvocation("cat"),
         DisallowedVariableReferenced("echo", "HOME"),
         ArgumentPathOutsideAllowedPaths("cat", "/x"),
-        FilterRejected("echo", "optionPresent"),
+        FilterRejected("echo", echo_flag_rule),
+        FilterUnprovable("echo", echo_flag_rule),
         AddAllowPolicyGrammarViolation("redirect_on_invocation"),
         AddAllowPolicyProposalInvalid("unknown filter type 'madeUp'"),
         AddAllowPolicyExampleRejected("git status", "why"),

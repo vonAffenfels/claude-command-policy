@@ -92,8 +92,16 @@ class Filter:
     def explain(self):
         return self._matcher.explain(self._action)
 
-    def derive_alternative(self):
-        return self._matcher.derive_alternative(self._action)
+    def __eq__(self, other):
+        if not isinstance(other, Filter):
+            return NotImplemented
+        return (self._matcher, self._action) == (other._matcher, other._action)
+
+    def __hash__(self):
+        return hash((self._matcher, self._action))
+
+    def __repr__(self):
+        return f"Filter({self._matcher!r}, {self._action!r})"
 
 
 class InvalidFilter:
@@ -109,3 +117,14 @@ class InvalidFilter:
 
     def matches(self, parsed):
         return False
+
+    def explain(self):
+        return f"broken rule, this entry never applies: {'; '.join(self.problems)}"
+
+    def __eq__(self, other):
+        if not isinstance(other, InvalidFilter):
+            return NotImplemented
+        return self.problems == other.problems
+
+    def __hash__(self):
+        return hash(self.problems)
