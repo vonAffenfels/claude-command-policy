@@ -55,6 +55,10 @@ A denial's rendered reason ends with an unconditional pointer to the `command-po
 `explain-policy` or invoke `Config.decision_for` itself). It reasons over the rendered rules already injected into its
 own context at dispatch and proposes an auto-approved alternative.
 
+## Plans
+
+The merge target of plans is `main`.
+
 ## Version Bumps Are Load-Bearing
 
 Plugin files are cached on user machines, and the cache invalidates on **version change in `marketplace.json`** and
