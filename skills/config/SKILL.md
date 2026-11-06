@@ -19,9 +19,12 @@ explaining command-policy's config - not when a single command was just denied a
 - **`allow` is the only outcome that grants.** It runs with no human involved.
 - **Everything else is deny+hint - a ROUTING signal, not a block.** "Could not be auto-approved" is not "forbidden". The
   caller retries with something auto-approved, or escalates deliberately.
-- **`bypass-policy <command>`** is a one-off escalation to the human for THIS invocation. It does not change the config.
-- **`add-allow-policy --scope <user|project> --intent "<why>" "<command>"`** is the durable fix: it proposes a new
-  `allowedCommands` entry, shown as a diff, written only once approved.
+- **`bypass-policy <program> [args...]`** is a one-off statement to the plugin - "I know no entry allows this" - that
+  you run YOURSELF, in argv form (`bypass-policy ls -d bin`), instead of asking the operator to run `!command`. Claude
+  Code's own permission rules then decide. It does not change the config.
+- **`add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example ...] '<entry>'`** is the
+  durable fix: it proposes a new `allowedCommands` entry, shown as a diff, written only once approved - and only after
+  every `--example` is proven to be allowed by the effective config plus the entry.
 - **Deny-by-default, with no leniency knobs.** The config can express what IS allowed; it cannot express permissiveness
   beyond that. There is no `defaultDecision`, no fallback mode, nothing that widens the allowlist except an
   `allowedCommands` entry actually vouching for an invocation.
@@ -56,8 +59,8 @@ Merge rules, per key:
    of a prior read. Never assume a config is empty just because nothing was mentioned recently.
 3. **New `allowedCommands` entry → `add-allow-policy`.** Quote the WHOLE entry as one argument - a bare program name, or
    a JSON object matching the entry schema (§Reference: schema). It refuses (denies, before ever showing the ask dialog)
-   a proposal whose entry has a static or described problem (§9) - fix the entry and retry rather than arguing with the
-   refusal.
+   a proposal whose entry has a static or described problem (§9), or that fails its own examples - fix the entry and
+   retry rather than arguing with the refusal. See "Writing an add-allow-policy proposal" below.
 4. **Everything else - editing/removing an `allowedCommands` entry, `blockedCommands`, `allowedPaths`,
    `additionalAllowedPathPrefixes`, `sensitive*` - is a direct `Edit` of the JSON file.** `add-allow-policy` can only
    APPEND to `allowedCommands`; it cannot touch any other key or modify/remove an existing entry.
@@ -71,6 +74,26 @@ Merge rules, per key:
 **`bypass-policy` vs. `add-allow-policy`:** if the goal is "let me through this one specific time", use `bypass-policy`.
 If the goal is "this KIND of command should just work from now on", use `add-allow-policy` - a caller that only ever
 reaches for `bypass-policy` never actually reduces how often it has to escalate.
+
+### Writing an add-allow-policy proposal
+
+The canonical form is
+`add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example "<command>" ...] '<entry>'`.
+
+- **The entry is a program name or a JSON object - never a command.** `'git status --short'` as an entry is refused: an
+  entry's `program` is one word, so that entry would match nothing (a config holding it DENIES `git status --short`).
+  Express arguments as filters in a JSON entry instead, e.g.
+  `'{"program": "git", "commandParser": {"type": "provided", "name": "git"}, "filters": [...]}'`.
+- **Single-quote a JSON entry** so its inner double quotes survive the outer shell.
+- **`--example` is the real command that needed bypassing** - copy it from the `bypass-policy` line you ran. Give
+  several when the rule should cover several shapes. add-allow-policy checks every example against the effective config
+  PLUS your entry: each must come out allowed, and at least one must not already be allowed without it. An example
+  refusal names the example and the objection it got - fix the entry (or the example), do not argue.
+- **Default to `--scope user`** unless the rule only makes sense for this project.
+- **When to propose.** UP FRONT when a task will need many bypass-policy calls of one shape (one approval instead of
+  many); at the END of a session that needed many workarounds a rule would have collapsed (after the task itself is
+  done). If your work is handed on - to an operator, an orchestrator, a parent agent - put the exact command in the
+  hand-off instead of running it.
 
 ## 4. Evaluation order and what each objection means
 
@@ -269,18 +292,22 @@ parsers that can publish on `nestedCommands`; none of the others ever do.
 
 ## Reference: escape hatches
 
-- **`bypass-policy <command>`** - recognized ONLY when it is the SOLE statement on the line
-  (`Statement. as_sole_invoked_program()`), never a `startswith` prefix check - `bypass-policy true && rm -rf /` does
-  NOT escalate the `rm`. Combines the wrapper's own shell-level objections with the wrapped command's ordinary decision:
-  if nothing objects, simply `allow`; a categorical objection (blocked command, sensitive path, an out-of-bounds
-  redirect) forces `ask` rather than being silently waived; anything else becomes `passthrough`.
-- **`add-allow-policy --scope <user|project> --intent "<why>" "<command>"`** - the ONLY accepted grammar; the whole
-  proposed command must be ONE quoted argument (an unquoted trailing redirect is performed by the OUTER shell against
-  `add-allow-policy`'s own stdout, not by the tool - quoting the whole thing prevents this). Violation codes, each
+- **`bypass-policy <program> [args...]`** - argv form, run by the session itself. Recognized ONLY when it is the SOLE
+  statement on the line (`Statement. as_sole_invoked_program()`), never a `startswith` prefix check -
+  `bypass-policy true && rm -rf /` does NOT escalate the `rm`. The wrapped command is re-analysed from its own source
+  text, so a quoted `;` or `>` stays one argument and `$X` stays unknowable. Combines the wrapper's own shell-level
+  objections with the wrapped command's ordinary decision: if nothing objects, simply `allow`; a categorical objection
+  (blocked command, sensitive path, an out-of-bounds redirect) forces `ask` rather than being silently waived; anything
+  else becomes `passthrough`.
+- **`add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example "<command>" ...] '<entry>'`** -
+  the ONLY accepted grammar; the entry must be ONE quoted argument (an unquoted trailing redirect is performed by the
+  OUTER shell against `add-allow-policy`'s own stdout, not by the tool - quoting prevents this). Violation codes, each
   denying rather than asking: `redirect_on_invocation`, `shell_touched` (a pipeline, `&&`/`||`/`;`, backgrounding,
-  command substitution anywhere, or a variable reference in the entry argument itself), `missing_scope`,
-  `duplicate_scope`, `invalid_scope_value`, `missing_intent`, `no_command_argument`, `multiple_command_arguments`. Flag
-  ORDER is not fixed - only that each of `--scope`/`--intent`/the command argument appears exactly once.
+  command substitution anywhere, or a variable reference in the entry or an example), `missing_scope`,
+  `duplicate_scope`, `invalid_scope_value`, `missing_intent`, `missing_example`, `no_command_argument`,
+  `multiple_command_arguments`. A well-formed proposal is also denied when an example is not allowed by the effective
+  config plus the entry, or when every example is already allowed without it. Flag ORDER is not fixed - only that
+  `--scope`/`--intent` appear exactly once, `--example` at least once, and one entry argument.
 - **`audit-session-policy`** - reports which Bash commands in a PAST session would not auto-approve under the CURRENT
   merged config; the tool for deciding what to allow-list next from real usage.
 

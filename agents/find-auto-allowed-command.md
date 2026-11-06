@@ -78,15 +78,22 @@ dispatch rather than once per session the way the main session's own copy does.
      separate steps for the caller to run one after the other - not joined by `&&`, a pipe, or a new substitution.
    - If nothing in the effective config achieves the goal, say so plainly rather than forcing a weak suggestion - but
      only once you have genuinely concluded no auto-approved route exists, including having considered decomposition.
-     Then name BOTH escalation routes and when each applies, rather than defaulting to one:
-     - **`bypass-policy <command>`** is for a ONE-OFF: this particular invocation, right now, escalated to the human as
-       a single decision. It does not change the config, so the same shape denies again next time.
-     - **`add-allow-policy --scope <user|project> --intent "<why>" "<command>"`** is for a command SHAPE that will
-       recur: it proposes a DURABLE `allowedCommands` entry, in its canonical grammar (the whole command as ONE quoted
-       argument - see `command-policy:config` for the schema an entry can express), which the human reviews as a diff
-       before it is written. Prefer this whenever the goal is "this kind of command should just work going forward", not
-       only "let me through this one time" - a caller that only ever reaches for `bypass-policy` never actually reduces
-       how often it needs to escalate.
+     Then return the exact line the caller should RUN - the caller is a session that acts, so never tell it to ask the
+     operator to run something - and name when the durable route applies as well:
+     - **`bypass-policy <program> [args...]`** is the line to return for a ONE-OFF: the denied command with
+       `bypass-policy ` placed in front, in argv form (`bypass-policy ls -d bin`, never `bypass-policy 'ls -d bin'`). It
+       is a statement to command-policy - "I know no entry allows this" - after which Claude Code's own permission rules
+       decide. It does not change the config, so the same shape denies again next time. Return it ready to run, e.g.
+       `bypass-policy ls -d bin`.
+     - **`add-allow-policy --scope <user|project> --intent "<why>" --example "<command>" [--example "<command>" ...] '<entry>'`**
+       is for a command SHAPE that will recur: it proposes a DURABLE `allowedCommands` entry, which the human reviews as
+       a diff before it is written. The `<entry>` is a program name or a JSON entry object - never a whole command
+       line - and every `--example` must be a real command that entry allows (add-allow-policy refuses otherwise). See
+       `command-policy:config` for the schema an entry can express. Prefer this whenever the goal is "this kind of
+       command should just work going forward" - a caller that only ever reaches for `bypass-policy` never actually
+       reduces how often it needs to escalate. When the caller's work is handed on afterwards (to an operator, an
+       orchestrator, a parent agent), tell it to put the exact `add-allow-policy` line in its hand-off instead of
+       running it.
 
 ## Tool Surface
 

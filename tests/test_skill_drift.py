@@ -160,6 +160,25 @@ def test_violation_code_registry_is_not_accidentally_empty():
     assert len(VIOLATION_CODES) == 9
 
 
+# -- the add-allow-policy canonical form is pinned verbatim ------------------
+
+AGENT_PATH = PLUGIN_ROOT / "agents" / "find-auto-allowed-command.md"
+
+
+def _with_collapsed_whitespace(text):
+    """Markdown formatters re-wrap prose, so compare modulo whitespace."""
+    return " ".join(text.split())
+
+
+@pytest.mark.parametrize("path", [SKILL_PATH, AGENT_PATH], ids=lambda path: path.name)
+def test_docs_state_the_add_allow_policy_canonical_form_verbatim(path):
+    from reason_renderer import ADD_ALLOW_POLICY_CANONICAL_FORM
+
+    assert _with_collapsed_whitespace(ADD_ALLOW_POLICY_CANONICAL_FORM) in _with_collapsed_whitespace(
+        path.read_text()
+    ), f"{path} does not state ADD_ALLOW_POLICY_CANONICAL_FORM verbatim"
+
+
 # -- dropped legacy keys must not be taught as VALID current syntax --------
 #
 # Some of these ARE mentioned in the skill, deliberately, as "this is
