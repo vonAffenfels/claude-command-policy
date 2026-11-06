@@ -22,6 +22,13 @@ def test_a_well_formed_json_entry_has_no_problems():
     assert proposal_problems(entry, "user", CONTEXT) == ()
 
 
+def test_a_whole_command_as_a_bare_entry_is_reported_as_a_problem():
+    problems = proposal_problems("git status --short", "user", CONTEXT)
+
+    assert len(problems) == 1
+    assert "names a program, not a command" in problems[0]
+
+
 def test_invalid_json_is_reported_as_a_problem():
     problems = proposal_problems("{not json", "user", CONTEXT)
 

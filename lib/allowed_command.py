@@ -98,7 +98,9 @@ class AllowedCommand:
             source=source,
             built_filters=built_filters,
             parser=parser,
-            static_problems=program_glob_problems + _parser_problems(parser) + filter_problems,
+            static_problems=(
+                _program_name_problems(program) + program_glob_problems + _parser_problems(parser) + filter_problems
+            ),
             has_valid_program_glob=program_glob is not None and not program_glob_problems,
         )
 
@@ -215,6 +217,18 @@ def _parser_problems(parser):
 
     if isinstance(parser, InvalidParser):
         return parser.problems
+    return ()
+
+
+def _program_name_problems(program):
+    """An entry names a PROGRAM; a whole command line (`git status --short`)
+    can never equal a command word, so such an entry would silently allow
+    nothing."""
+    if isinstance(program, str) and program.split() != [program]:
+        return (
+            f"{program!r} names a program, not a command - an entry's 'program' is a single word; "
+            "express arguments as filters in a JSON entry",
+        )
     return ()
 
 

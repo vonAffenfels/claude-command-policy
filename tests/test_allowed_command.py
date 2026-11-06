@@ -179,6 +179,17 @@ def test_a_program_glob_entry_rejects_a_missing_field(field):
     assert any(f"missing required field {field!r}" in problem for problem in entry.problems())
 
 
+@pytest.mark.parametrize("entry", ["git status --short", {"program": "git status"}])
+def test_a_program_name_containing_whitespace_is_a_problem(entry):
+    built = AllowedCommand.from_entry(entry)
+
+    assert any("names a program, not a command" in problem for problem in built.problems())
+
+
+def test_a_plain_program_name_has_no_whitespace_problem():
+    assert AllowedCommand.from_entry("git").problems() == ()
+
+
 def test_program_glob_and_program_are_mutually_exclusive():
     entry = AllowedCommand.from_entry(
         {"program": "foo", "programGlob": {"marketplace": "m", "plugin": "p", "path": "bin/foo"}}
