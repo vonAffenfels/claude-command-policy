@@ -36,7 +36,9 @@ def test_add_allow_policy_writes_the_proposed_entry_to_the_user_config(run_entry
     env = {"HOME": str(home)}
 
     result = run_entrypoint(
-        "add-allow-policy", args=["rg", "--scope", "user", "--intent", "search without prompts"], env=env
+        "add-allow-policy",
+        args=["rg", "--scope", "user", "--intent", "search without prompts", "--example", "rg foo"],
+        env=env,
     )
 
     assert result.returncode == 0, result.stderr
@@ -50,7 +52,11 @@ def test_add_allow_policy_writes_a_json_entry_object(run_entrypoint, tmp_path):
     env = {"HOME": str(home)}
     entry = json.dumps({"program": "git", "onlyTheseVariables": ["HOME"]})
 
-    result = run_entrypoint("add-allow-policy", args=[entry, "--scope", "user", "--intent", "why"], env=env)
+    result = run_entrypoint(
+        "add-allow-policy",
+        args=[entry, "--scope", "user", "--intent", "why", "--example", "git status"],
+        env=env,
+    )
 
     assert result.returncode == 0, result.stderr
     written = json.loads((home / ".claude" / "command-policy.json").read_text())
@@ -60,10 +66,12 @@ def test_add_allow_policy_writes_a_json_entry_object(run_entrypoint, tmp_path):
 def test_add_allow_policy_writes_to_the_project_config_for_project_scope(run_entrypoint, tmp_path):
     project_dir = tmp_path / "project"
     (project_dir / ".claude").mkdir(parents=True)
-    env = {"CLAUDE_PROJECT_DIR": str(project_dir)}
+    env = {"CLAUDE_PROJECT_DIR": str(project_dir), "HOME": str(tmp_path / "empty-home")}
 
     result = run_entrypoint(
-        "add-allow-policy", args=["rg", "--scope", "project", "--intent", "why"], env=env
+        "add-allow-policy",
+        args=["rg", "--scope", "project", "--intent", "why", "--example", "rg foo"],
+        env=env,
     )
 
     assert result.returncode == 0, result.stderr
@@ -72,7 +80,7 @@ def test_add_allow_policy_writes_to_the_project_config_for_project_scope(run_ent
 
 
 def test_add_allow_policy_run_from_a_worktree_writes_the_main_checkouts_project_config(
-    run_entrypoint, repository_with_linked_worktree
+    run_entrypoint, repository_with_linked_worktree, tmp_path
 ):
     """add-allow-policy runs via the Bash tool, where CLAUDE_PROJECT_DIR is
     unset and the cwd is the session's worktree. It used to write the
@@ -82,8 +90,8 @@ def test_add_allow_policy_run_from_a_worktree_writes_the_main_checkouts_project_
 
     result = run_entrypoint(
         "add-allow-policy",
-        args=["rg", "--scope", "project", "--intent", "why"],
-        env={"CLAUDE_PROJECT_DIR": None},
+        args=["rg", "--scope", "project", "--intent", "why", "--example", "rg foo"],
+        env={"CLAUDE_PROJECT_DIR": None, "HOME": str(tmp_path / "empty-home")},
         cwd=layout.worktree / "docs",
     )
 
@@ -98,10 +106,55 @@ def test_add_allow_policy_refuses_to_write_without_an_intent(run_entrypoint, tmp
     (home / ".claude").mkdir(parents=True)
     env = {"HOME": str(home)}
 
-    result = run_entrypoint("add-allow-policy", args=["rg", "--scope", "user"], env=env)
+    result = run_entrypoint("add-allow-policy", args=["rg", "--scope", "user", "--example", "rg foo"], env=env)
 
     assert result.returncode != 0
     assert not (home / ".claude" / "command-policy.json").exists()
+
+
+def test_add_allow_policy_refuses_to_write_without_an_example(run_entrypoint, tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    env = {"HOME": str(home)}
+
+    result = run_entrypoint("add-allow-policy", args=["rg", "--scope", "user", "--intent", "why"], env=env)
+
+    assert result.returncode != 0
+    assert "--example" in result.stderr
+    assert not (home / ".claude" / "command-policy.json").exists()
+
+
+def test_add_allow_policy_refuses_to_write_an_entry_that_does_not_allow_its_example(run_entrypoint, tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    env = {"HOME": str(home)}
+
+    result = run_entrypoint(
+        "add-allow-policy",
+        args=["rg", "--scope", "user", "--intent", "why", "--example", "git status"],
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "git status" in result.stderr
+    assert not (home / ".claude" / "command-policy.json").exists()
+
+
+def test_add_allow_policy_refuses_to_write_an_entry_that_changes_no_example(run_entrypoint, tmp_path):
+    home = tmp_path / "home"
+    (home / ".claude").mkdir(parents=True)
+    (home / ".claude" / "command-policy.json").write_text(json.dumps({"allowedCommands": ["rg"]}))
+    env = {"HOME": str(home)}
+
+    result = run_entrypoint(
+        "add-allow-policy",
+        args=["rg", "--scope", "user", "--intent", "why", "--example", "rg foo"],
+        env=env,
+    )
+
+    assert result.returncode != 0
+    assert "changes nothing" in result.stderr
+    assert json.loads((home / ".claude" / "command-policy.json").read_text()) == {"allowedCommands": ["rg"]}
 
 
 def test_add_allow_policy_refuses_to_write_an_entry_with_an_unknown_filter_type(run_entrypoint, tmp_path):
@@ -116,7 +169,9 @@ def test_add_allow_policy_refuses_to_write_an_entry_with_an_unknown_filter_type(
     entry = json.dumps({"program": "echo", "filters": [{"type": "madeUp", "action": "block"}]})
 
     result = run_entrypoint(
-        "add-allow-policy", args=[entry, "--scope", "user", "--intent", "why"], env=env
+        "add-allow-policy",
+        args=[entry, "--scope", "user", "--intent", "why", "--example", "echo x"],
+        env=env,
     )
 
     assert result.returncode != 0

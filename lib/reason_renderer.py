@@ -30,6 +30,8 @@ plumbing, only two words.
 from __future__ import annotations
 
 from reason import (
+    AddAllowPolicyEntryChangesNothing,
+    AddAllowPolicyExampleRejected,
     AddAllowPolicyGrammarViolation,
     AddAllowPolicyProposalInvalid,
     ArgumentPathOutsideAllowedPaths,
@@ -52,26 +54,30 @@ EQUIVALENCE_POINTER = (
     "for an auto-approved alternative"
 )
 
-ADD_ALLOW_POLICY_CANONICAL_FORM = 'add-allow-policy --scope <user|project> --intent "<why>" "<command>"'
+ADD_ALLOW_POLICY_CANONICAL_FORM = (
+    "add-allow-policy --scope <user|project> --intent \"<why>\" --example \"<command>\" [--example \"<command>\" ...] '<entry>'"
+)
 
 _ADD_ALLOW_POLICY_VIOLATION_EXPLANATIONS = {
     "missing_scope": "--scope <user|project> is required, given exactly once",
     "duplicate_scope": "--scope was given more than once",
     "invalid_scope_value": "--scope must be exactly 'user' or 'project'",
     "missing_intent": '--intent "<why>" is required',
+    "missing_example": (
+        '--example "<command>" is required at least once - name the real command the entry must allow, '
+        "so the proposal can be proven to work before anyone is asked to approve it"
+    ),
     "no_command_argument": (
-        "no command argument was given - the command to allow must be one quoted argument"
+        "no entry argument was given - the entry (a program name or a JSON object) must be one quoted argument"
     ),
     "multiple_command_arguments": (
-        "more than one command argument was given - the whole command must be a SINGLE quoted "
+        "more than one entry argument was given - the whole entry must be a SINGLE quoted "
         "argument, or the outer shell will split it and only the first piece reaches the tool"
     ),
     "redirect_on_invocation": (
         "a redirect on this invocation is performed by the OUTER shell against add-allow-policy's "
-        'own stdout, not by the tool - for example add-allow-policy --scope user --intent "x" echo '
-        "something > somewhere persists the policy \"echo something\" while \"> somewhere\" never "
-        'reaches the tool at all. Quote the whole command as ONE argument instead: '
-        'add-allow-policy --scope user --intent "x" "echo something > somewhere"'
+        "own stdout, not by the tool - it never reaches the tool at all. Quote the entry as ONE "
+        "argument instead, in single quotes if it is a JSON object"
     ),
     "shell_touched": (
         "the outer shell has touched this invocation (a pipeline, a && / || / ; list, "
@@ -119,6 +125,12 @@ _CLAUSE_BUILDERS = {
         f"{_ADD_ALLOW_POLICY_VIOLATION_EXPLANATIONS.get(r.violation, f'malformed invocation ({r.violation})')}"
     ),
     AddAllowPolicyProposalInvalid: lambda r: f"add-allow-policy's proposed entry is invalid: {r.problem}",
+    AddAllowPolicyExampleRejected: lambda r: (
+        f"add-allow-policy's proposed entry would not allow its own example {r.example!r}: {r.why}"
+    ),
+    AddAllowPolicyEntryChangesNothing: lambda r: (
+        "add-allow-policy's proposed entry changes nothing: every --example is already allowed without it"
+    ),
 }
 
 
@@ -128,8 +140,13 @@ def render(reasons):
     empty/None reason list - there is nothing to render for `allow`."""
     if not reasons:
         return ""
-    clauses = [_clause_for(reason) for reason in reasons]
-    return "; ".join(clauses) + f" ({EQUIVALENCE_POINTER})"
+    return render_clauses(reasons) + f" ({EQUIVALENCE_POINTER})"
+
+
+def render_clauses(reasons):
+    """The reasons' clauses alone, without the equivalence pointer - for a
+    caller embedding them inside another reason."""
+    return "; ".join(_clause_for(reason) for reason in reasons)
 
 
 def _clause_for(reason):

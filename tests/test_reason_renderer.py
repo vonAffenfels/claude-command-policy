@@ -5,6 +5,8 @@ assert_primary_reason). This is the only place wording is pinned at all.
 """
 
 from reason import (
+    AddAllowPolicyEntryChangesNothing,
+    AddAllowPolicyExampleRejected,
     AddAllowPolicyGrammarViolation,
     AddAllowPolicyProposalInvalid,
     ArgumentPathOutsideAllowedPaths,
@@ -116,6 +118,8 @@ def test_renders_every_reason_kind_without_crashing():
         FilterRejected("echo", "optionPresent"),
         AddAllowPolicyGrammarViolation("redirect_on_invocation"),
         AddAllowPolicyProposalInvalid("unknown filter type 'madeUp'"),
+        AddAllowPolicyExampleRejected("git status", "why"),
+        AddAllowPolicyEntryChangesNothing(),
     )
 
     text = render(every_kind)
@@ -129,6 +133,28 @@ def test_renders_the_proposed_entrys_own_problem():
 
     assert text.startswith("add-allow-policy's proposed entry is invalid: unknown filter type 'madeUp'")
     assert text.endswith(f"({EQUIVALENCE_POINTER})")
+
+
+def test_the_canonical_form_names_an_entry_not_a_command():
+    assert "'<entry>'" in ADD_ALLOW_POLICY_CANONICAL_FORM
+    assert '--example "<command>"' in ADD_ALLOW_POLICY_CANONICAL_FORM
+    assert ADD_ALLOW_POLICY_CANONICAL_FORM.endswith("'<entry>'")
+
+
+def test_renders_the_example_an_entry_would_not_allow_without_the_equivalence_pointer_inside_it():
+    text = render((AddAllowPolicyExampleRejected("git status", "no allowedCommands entry vouches for: git"),))
+
+    assert text.startswith(
+        "add-allow-policy's proposed entry would not allow its own example 'git status': "
+        "no allowedCommands entry vouches for: git"
+    )
+    assert text.count(EQUIVALENCE_POINTER) == 1
+
+
+def test_renders_an_entry_that_changes_nothing():
+    text = render((AddAllowPolicyEntryChangesNothing(),))
+
+    assert "changes nothing" in text
 
 
 def test_renders_the_wrong_use_of_add_allow_policy_teaching_the_correct_form():

@@ -4,7 +4,10 @@ By the time this module's `main()` runs, `Config.decision_for` (via
 escalation_policy.py's `add_allow_policy_transform`) has already forced
 `ask` for this exact invocation, carrying the JSON diff shown in the
 permission dialog - approving the dialog IS the write. This module performs
-it: parses `--scope`/`--intent`/the entry, VALIDATES BEFORE WRITING (a
+it: parses `--scope`/`--intent`/`--example`/the entry, VALIDATES BEFORE
+WRITING (every `--example` must be allowed by the loaded effective config
+plus the entry, and at least one must not be allowed without it - the same
+`example_objections_for` the ask path uses; a
 missing `--intent` or a missing entry text is rejected rather than producing
 an undocumented write - `--intent` is ALSO required at the ask-recognition
 layer since the strict-grammar reopening (see escalation_policy.py's module
@@ -32,7 +35,10 @@ import os
 import sys
 from pathlib import Path
 
+from config_loader import load_config_from_environment
+from escalation_policy import example_objections_for
 from proposal_validation import parse_entry, proposal_problems
+from reason_renderer import render_clauses
 from workspace import Workspace
 
 
@@ -60,6 +66,15 @@ def apply_proposal(scope, entry_text):
     return path
 
 
+def _example_objections(entry_text, examples):
+    """The ask path's example proof, re-run against the config as loaded
+    from disk right now."""
+    config = load_config_from_environment()
+    return example_objections_for(
+        parse_entry(entry_text), examples, config.decision_for, config.decision_for_with_entry
+    )
+
+
 def main(argv):
     parser = argparse.ArgumentParser(
         prog="add-allow-policy",
@@ -74,6 +89,12 @@ def main(argv):
         "--scope", choices=("user", "project"), required=True, help="Which config file to write."
     )
     parser.add_argument("--intent", required=True, help="Why this entry is needed (shown in the permission prompt).")
+    parser.add_argument(
+        "--example",
+        action="append",
+        required=True,
+        help="A real command the entry must allow (repeatable). Checked against the effective config plus the entry.",
+    )
     args = parser.parse_args(argv)
 
     if not args.intent.strip():
@@ -85,6 +106,12 @@ def main(argv):
         print("error: proposed entry is invalid - nothing was written:", file=sys.stderr)
         for problem in problems:
             print(f"  - {problem}", file=sys.stderr)
+        return 2
+
+    example_objections = _example_objections(args.entry, args.example)
+    if example_objections:
+        print("error: proposed entry fails its examples - nothing was written:", file=sys.stderr)
+        print(f"  - {render_clauses(example_objections)}", file=sys.stderr)
         return 2
 
     try:

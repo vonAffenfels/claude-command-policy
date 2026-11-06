@@ -73,9 +73,11 @@ from __future__ import annotations
 import json
 
 from permission_decision import PermissionDecision
-from proposal_validation import proposal_problems
+from proposal_validation import parse_entry, proposal_problems
 from reason import (
     NEAR_MISS_REASON_TYPES,
+    AddAllowPolicyEntryChangesNothing,
+    AddAllowPolicyExampleRejected,
     AddAllowPolicyGrammarViolation,
     AddAllowPolicyProposalInvalid,
     BlockedCommandInvoked,
@@ -83,7 +85,7 @@ from reason import (
     RedirectOutsideAllowedPaths,
     SensitivePathReferenced,
 )
-from reason_renderer import render
+from reason_renderer import render, render_clauses
 from statement import Command
 from workspace import Workspace
 
@@ -178,7 +180,13 @@ def _mentions_program(statement, program):
     return any(_mentions_program(child, program) for child in statement.sub_statements())
 
 
-def add_allow_policy_transform(statement, path_resolution=None, project_config_file=None):
+def add_allow_policy_transform(
+    statement,
+    path_resolution=None,
+    project_config_file=None,
+    decide_example=None,
+    decide_example_with_entry=None,
+):
     """None when `add-allow-policy` is not invoked anywhere on this line.
     Otherwise `ask` for the one accepted grammar with a well-formed entry,
     `deny` (with an `AddAllowPolicyGrammarViolation` Reason) for any other
@@ -190,6 +198,14 @@ def add_allow_policy_transform(statement, path_resolution=None, project_config_f
     for anything. `path_resolution` and `project_config_file` (the file a
     project-scope diff names) default to this session's `Workspace`,
     mirroring every other caller-optional context parameter in this package.
+
+    Every `--example` must be proven: `decide_example(example)` is the
+    session's effective config alone, `decide_example_with_entry(entry,
+    example)` that config plus the proposed entry. Each example must come out
+    `allow` WITH the entry, and at least one must NOT be allowed without it
+    (otherwise the entry adds nothing). The transform loads no config itself -
+    it receives these callables (None skips the check, for pure grammar
+    tests).
     """
     if not _mentions_program(statement, ADD_ALLOW_POLICY_PROGRAM):
         return None
@@ -203,18 +219,51 @@ def add_allow_policy_transform(statement, path_resolution=None, project_config_f
     if violation is not None:
         return _malformed_add_allow_policy(violation)
 
-    scope, intent, entry_text = parsed
+    scope, intent, examples, entry_text = parsed
 
     problems = proposal_problems(entry_text, scope, path_resolution or Workspace.of_this_session().path_resolution())
     if problems:
         return PermissionDecision.deny(tuple(AddAllowPolicyProposalInvalid(problem) for problem in problems))
 
+    if decide_example is not None and decide_example_with_entry is not None:
+        example_objections = example_objections_for(
+            parse_entry(entry_text), examples, decide_example, decide_example_with_entry
+        )
+        if example_objections:
+            return PermissionDecision.deny(example_objections)
+
     diff = _entry_diff(_displayed_config_file(scope, project_config_file), entry_text)
     reason = (
         f"PROPOSED command-policy config change ({scope} scope). Diff: {diff}. "
-        f"Stated intent: {intent}. Approving this runs the write - nothing else changes."
+        f"Stated intent: {intent}. Examples this entry is proven to allow: "
+        f"{', '.join(repr(example) for example in examples)}. "
+        "Approving this runs the write - nothing else changes."
     )
     return PermissionDecision.ask(reason)
+
+
+def example_objections_for(entry, examples, decide_example, decide_example_with_entry):
+    """Reasons an add-allow-policy proposal fails its own examples; empty
+    when every example is allowed with `entry` and at least one is not
+    allowed without it. Shared by the ask path and the write side."""
+    rejected = tuple(
+        AddAllowPolicyExampleRejected(example, _decision_text(decision))
+        for example in examples
+        for decision in (decide_example_with_entry(entry, example),)
+        if not decision.is_allow
+    )
+    if rejected:
+        return rejected
+    if all(decide_example(example).is_allow for example in examples):
+        return (AddAllowPolicyEntryChangesNothing(),)
+    return ()
+
+
+def _decision_text(decision):
+    reason = decision.reason
+    if isinstance(reason, tuple):
+        return render_clauses(reason)
+    return str(reason) if reason else f"decided {decision.decision}"
 
 
 def _malformed_add_allow_policy(violation):
@@ -225,8 +274,9 @@ def _classify_add_allow_invocation(arguments):
     """Scans `add-allow-policy`'s own arguments (the wrapper's invocation is
     already confirmed shell-untouched by the caller) against the strict
     grammar. Returns `(violation_code, None)` for the first violation found,
-    or `(None, (scope, intent, entry_text))` once exactly one valid `--scope`,
-    one `--intent`, and one remaining command argument are all present.
+    or `(None, (scope, intent, examples, entry_text))` once exactly one valid
+    `--scope`, one `--intent`, at least one `--example` and one remaining
+    entry argument are all present.
 
     Flag ORDER is deliberately not checked here - `--scope`/`--intent` may
     appear in either order or interleaved with the command argument (see this
@@ -244,6 +294,7 @@ def _classify_add_allow_invocation(arguments):
     """
     scope = intent = entry_text = None
     entry_argument = None
+    examples = []
     scope_count = intent_count = command_arg_count = 0
     tokens = list(arguments)
     index = 0
@@ -263,6 +314,14 @@ def _classify_add_allow_invocation(arguments):
             intent = tokens[index + 1].text
             index += 2
             continue
+        if text == "--example":
+            if index + 1 >= len(tokens):
+                return "missing_example", None
+            if tokens[index + 1].referenced_variables:
+                return "shell_touched", None
+            examples.append(tokens[index + 1].text)
+            index += 2
+            continue
         command_arg_count += 1
         entry_text = text
         entry_argument = tokens[index]
@@ -276,13 +335,15 @@ def _classify_add_allow_invocation(arguments):
         return "invalid_scope_value", None
     if intent_count == 0:
         return "missing_intent", None
+    if not examples:
+        return "missing_example", None
     if command_arg_count == 0:
         return "no_command_argument", None
     if command_arg_count > 1:
         return "multiple_command_arguments", None
     if entry_argument.referenced_variables:
         return "shell_touched", None
-    return None, (scope, intent, entry_text)
+    return None, (scope, intent, tuple(examples), entry_text)
 
 
 def _displayed_config_file(scope, project_config_file):

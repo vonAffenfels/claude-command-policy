@@ -5,9 +5,12 @@ the end-to-end behavioural contract through Config.decision_for).
 
 from pathlib import Path
 
+from config import Config
 from escalation_policy import add_allow_policy_transform, bypass_chain_hint, bypass_transform
 from permission_decision import PermissionDecision
 from reason import (
+    AddAllowPolicyEntryChangesNothing,
+    AddAllowPolicyExampleRejected,
     AddAllowPolicyGrammarViolation,
     AddAllowPolicyProposalInvalid,
     BlockedCommandInvoked,
@@ -142,7 +145,7 @@ def test_add_allow_policy_transform_forces_ask_for_the_canonical_quoted_form():
     test_a_double_quoted_word_with_no_substitution_reads_its_real_content)
     left this dialog showing an empty command and an empty intent for
     exactly this, the operator-mandated canonical form."""
-    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" "rg"')
+    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" --example "rg x" "rg"')
 
     result = add_allow_policy_transform(statement)
 
@@ -150,6 +153,7 @@ def test_add_allow_policy_transform_forces_ask_for_the_canonical_quoted_form():
     assert "rg" in result.reason
     assert "testing" in result.reason
     assert "user" in result.reason
+    assert "'rg x'" in result.reason
 
 
 def test_add_allow_policy_transform_forces_ask_and_names_the_proposed_entry():
@@ -158,7 +162,7 @@ def test_add_allow_policy_transform_forces_ask_and_names_the_proposed_entry():
     exercise what the human sees in the ask dialog even before the
     double-quote fix existed. Kept alongside the double-quoted case above
     for both quoting styles' coverage."""
-    statement = Statement.from_command("add-allow-policy --scope user --intent 'testing' 'rg'")
+    statement = Statement.from_command("add-allow-policy --scope user --intent 'testing' --example 'rg x' 'rg'")
 
     result = add_allow_policy_transform(statement)
 
@@ -175,7 +179,7 @@ def test_add_allow_policy_transform_accepts_a_double_quoted_scope_value():
     a legitimate, correctly quoted canonical invocation, not merely a
     display bug. Fixed at the source (improvement-20260918-205740 merged the
     double-quote recovery into `.text` itself), not at this call site."""
-    statement = Statement.from_command('add-allow-policy --scope "user" --intent "x" "rg"')
+    statement = Statement.from_command('add-allow-policy --scope "user" --intent "x" --example "rg x" "rg"')
 
     result = add_allow_policy_transform(statement)
 
@@ -185,7 +189,9 @@ def test_add_allow_policy_transform_accepts_a_double_quoted_scope_value():
 
 
 def test_add_allow_policy_transform_names_the_resolved_project_config_file_for_project_scope():
-    statement = Statement.from_command("add-allow-policy --scope project --intent 'testing' 'rg'")
+    statement = Statement.from_command(
+        "add-allow-policy --scope project --intent 'testing' --example 'rg x' 'rg'"
+    )
 
     result = add_allow_policy_transform(statement, project_config_file=Path("/repo/.claude/command-policy.json"))
 
@@ -196,7 +202,7 @@ def test_add_allow_policy_transform_names_the_resolved_project_config_file_for_p
 def test_add_allow_policy_transform_forces_ask_regardless_of_flag_order():
     """Order-agnostic by design (see the Design Decision cited above) - only
     the FLAG SHAPE is fixed, not a byte-for-byte positional template."""
-    statement = Statement.from_command("add-allow-policy --intent 'testing' --scope user 'rg'")
+    statement = Statement.from_command("add-allow-policy --intent 'testing' --scope user --example 'rg x' 'rg'")
 
     result = add_allow_policy_transform(statement)
 
@@ -245,7 +251,7 @@ def test_add_allow_policy_transform_denies_a_missing_intent():
 
 
 def test_add_allow_policy_transform_denies_zero_command_arguments():
-    statement = Statement.from_command('add-allow-policy --scope user --intent "testing"')
+    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" --example "rg x"')
 
     result = add_allow_policy_transform(statement)
 
@@ -253,10 +259,28 @@ def test_add_allow_policy_transform_denies_zero_command_arguments():
     assert AddAllowPolicyGrammarViolation("no_command_argument") in result.reason
 
 
+def test_add_allow_policy_transform_denies_a_missing_example():
+    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" "rg"')
+
+    result = add_allow_policy_transform(statement)
+
+    assert result.decision == "deny"
+    assert AddAllowPolicyGrammarViolation("missing_example") in result.reason
+
+
+def test_add_allow_policy_transform_denies_an_example_flag_without_a_value():
+    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" "rg" --example')
+
+    result = add_allow_policy_transform(statement)
+
+    assert result.decision == "deny"
+    assert AddAllowPolicyGrammarViolation("missing_example") in result.reason
+
+
 def test_add_allow_policy_transform_denies_more_than_one_command_argument():
     """An unquoted multi-word command splits into several arguments - exactly
     the shape the grammar exists to reject, even with no redirect involved."""
-    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" echo hi')
+    statement = Statement.from_command('add-allow-policy --scope user --intent "testing" --example "rg x" echo hi')
 
     result = add_allow_policy_transform(statement)
 
@@ -320,7 +344,7 @@ def test_add_allow_policy_transform_denies_a_parameter_expansion_in_the_entry_ar
     a narrower entry string ('cat /file') than `lib/add_allow_write.py`
     would actually persist (it parses real post-expansion argv)."""
     statement = Statement.from_command(
-        'add-allow-policy --scope user --intent "x" "cat $HOME/file"'
+        'add-allow-policy --scope user --intent "x" --example "rg x" "cat $HOME/file"'
     )
 
     result = add_allow_policy_transform(statement)
@@ -334,7 +358,7 @@ def test_add_allow_policy_transform_accepts_a_double_quoted_entry_with_no_variab
     with no variable reference is not shell_touched merely for being
     quoted."""
     statement = Statement.from_command(
-        'add-allow-policy --scope user --intent "x" "echo something > somewhere"'
+        'add-allow-policy --scope user --intent "x" --example "rg x" "rg"'
     )
 
     result = add_allow_policy_transform(statement)
@@ -362,7 +386,7 @@ def test_add_allow_policy_transform_denies_command_substitution_anywhere_in_it()
 def test_add_allow_policy_transform_denies_a_proposal_naming_an_unknown_filter_type():
     entry = '{"program": "echo", "filters": [{"type": "madeUp", "action": "block"}]}'
     statement = Statement.from_command(
-        f'add-allow-policy --scope user --intent "testing" \'{entry}\''
+        f'add-allow-policy --scope user --intent "testing" --example "echo x" \'{entry}\''
     )
 
     result = add_allow_policy_transform(statement)
@@ -376,7 +400,7 @@ def test_add_allow_policy_transform_denies_a_proposal_naming_an_unknown_filter_t
 def test_add_allow_policy_transform_denies_a_proposal_with_a_malformed_program_glob():
     entry = '{"programGlob": {"marketplace": "m", "plugin": "p", "path": "/bin/foo"}}'
     statement = Statement.from_command(
-        f'add-allow-policy --scope user --intent "testing" \'{entry}\''
+        f'add-allow-policy --scope user --intent "testing" --example "foo" \'{entry}\''
     )
 
     result = add_allow_policy_transform(statement)
@@ -387,7 +411,7 @@ def test_add_allow_policy_transform_denies_a_proposal_with_a_malformed_program_g
 
 def test_add_allow_policy_transform_denies_invalid_json():
     statement = Statement.from_command(
-        "add-allow-policy --scope user --intent \"testing\" '{not json'"
+        "add-allow-policy --scope user --intent \"testing\" --example \"echo x\" '{not json'"
     )
 
     result = add_allow_policy_transform(statement)
@@ -396,3 +420,76 @@ def test_add_allow_policy_transform_denies_invalid_json():
     [reason] = result.reason
     assert isinstance(reason, AddAllowPolicyProposalInvalid)
     assert "not valid JSON" in reason.problem
+
+
+# -- proving the entry with its examples ------------------------------------
+#
+# The transform loads no config: it receives `decide_example` (effective
+# config alone) and `decide_example_with_entry` (config plus the entry).
+
+
+def _transform_with_config(command, config):
+    return add_allow_policy_transform(
+        Statement.from_command(command),
+        decide_example=config.decision_for,
+        decide_example_with_entry=config.decision_for_with_entry,
+    )
+
+
+def test_add_allow_policy_transform_asks_when_the_entry_makes_its_example_allowed():
+    result = _transform_with_config(
+        'add-allow-policy --scope user --intent "x" --example "rg foo" \'rg\'', Config.from_dict({})
+    )
+
+    assert result.decision == "ask"
+    assert "'rg foo'" in result.reason
+
+
+def test_add_allow_policy_transform_denies_an_example_the_entry_would_not_allow():
+    result = _transform_with_config(
+        'add-allow-policy --scope user --intent "x" --example "git status" \'rg\'', Config.from_dict({})
+    )
+
+    assert result.decision == "deny"
+    [reason] = result.reason
+    assert isinstance(reason, AddAllowPolicyExampleRejected)
+    assert reason.example == "git status"
+    assert "git" in reason.why
+
+
+def test_add_allow_policy_transform_denies_a_whole_command_written_as_the_entry():
+    result = _transform_with_config(
+        "add-allow-policy --scope user --intent \"x\" --example \"git status --short\" 'git status --short'",
+        Config.from_dict({}),
+    )
+
+    assert result.decision == "deny"
+    assert any(isinstance(reason, AddAllowPolicyProposalInvalid) for reason in result.reason)
+
+
+def test_add_allow_policy_transform_denies_an_entry_that_changes_no_example():
+    result = _transform_with_config(
+        'add-allow-policy --scope user --intent "x" --example "rg foo" \'rg\'',
+        Config.from_dict({"allowedCommands": ["rg"]}),
+    )
+
+    assert result.decision == "deny"
+    assert result.reason == (AddAllowPolicyEntryChangesNothing(),)
+
+
+def test_add_allow_policy_transform_asks_when_only_one_of_several_examples_is_new():
+    result = _transform_with_config(
+        'add-allow-policy --scope user --intent "x" --example "rg a" --example "rg-fast b" \'rg-fast\'',
+        Config.from_dict({"allowedCommands": ["rg"]}),
+    )
+
+    assert result.decision == "ask"
+
+
+def test_add_allow_policy_transform_asks_for_several_examples_when_the_entry_allows_all_of_them():
+    result = _transform_with_config(
+        'add-allow-policy --scope user --intent "x" --example "rg a" --example "rg b" \'rg\'',
+        Config.from_dict({}),
+    )
+
+    assert result.decision == "ask"

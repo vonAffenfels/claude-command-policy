@@ -356,7 +356,12 @@ class Config:
         if statement is None:
             return PermissionDecision.deny(f"could not parse command: {command!r}")
 
-        add_allow = add_allow_policy_transform(statement, self._path_resolution)
+        add_allow = add_allow_policy_transform(
+            statement,
+            self._path_resolution,
+            decide_example=self.decision_for,
+            decide_example_with_entry=self.decision_for_with_entry,
+        )
         if add_allow is not None:
             return add_allow
 
@@ -376,6 +381,13 @@ class Config:
             return hinted
 
         return ordinary
+
+    def decision_for_with_entry(self, entry, command):
+        """`decision_for(command)` as it would be if the allowedCommands
+        `entry` (a program name or an entry dict) were also configured - the
+        proof an add-allow-policy proposal is checked against."""
+        proposed = AllowedCommand.from_entry(entry, self._path_resolution, source="proposal")
+        return self.with_allowed_commands(self._allowed_commands + (proposed,)).decision_for(command)
 
     def _decision_for_statement(self, statement, command_text, depth, max_nested_depth):
         """Every matching policy contributes its own reasons - not just the

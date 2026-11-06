@@ -157,7 +157,7 @@ def test_skill_names_every_add_allow_policy_violation_code(code):
 
 
 def test_violation_code_registry_is_not_accidentally_empty():
-    assert len(VIOLATION_CODES) == 8
+    assert len(VIOLATION_CODES) == 9
 
 
 # -- dropped legacy keys must not be taught as VALID current syntax --------

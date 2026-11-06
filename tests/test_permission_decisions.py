@@ -2855,7 +2855,7 @@ def test_add_allow_policy_forces_ask_as_the_durable_fix_escalation():
     - the canonical form is required to exercise the forced-ask path at all.
     """
     assert_decision(
-        'add-allow-policy --scope user --intent "why" "rg"',
+        'add-allow-policy --scope user --intent "why" --example "rg foo" "rg"',
         {"allowedCommands": ["echo"]},
         "ask",
     )
@@ -2864,7 +2864,7 @@ def test_add_allow_policy_forces_ask_as_the_durable_fix_escalation():
 def test_add_allow_policy_forces_ask_for_the_project_scope_too():
     """RE-AUTHORED 2026-09-17 - see the note above."""
     assert_decision(
-        'add-allow-policy --scope project --intent "why" "rg"',
+        'add-allow-policy --scope project --intent "why" --example "rg foo" "rg"',
         {"allowedCommands": ["echo"]},
         "ask",
     )
@@ -2882,7 +2882,9 @@ def test_the_two_escape_hatches_produce_different_outcomes_by_design():
     necessary consequence of Task 1, not a revisit of anything else.
     """
     assert_decision("bypass-policy rg pattern", {"allowedCommands": []}, "passthrough")
-    assert_decision('add-allow-policy --scope user --intent "why" "rg"', {"allowedCommands": []}, "ask")
+    assert_decision(
+        'add-allow-policy --scope user --intent "why" --example "rg foo" "rg"', {"allowedCommands": []}, "ask"
+    )
 
 
 # -- add-allow-policy's strict grammar (reopened 2026-09-17, Task 1) ---------
@@ -2916,7 +2918,7 @@ def test_add_allow_policy_denies_an_unquoted_multi_word_command_with_no_redirect
     """Quoting matters even with no redirect on the line: an unquoted
     multi-word command still reaches the tool as more than one argument."""
     result = assert_decision(
-        'add-allow-policy --scope user --intent "x" echo hi',
+        'add-allow-policy --scope user --intent "x" --example "echo hi" echo hi',
         {"allowedCommands": []},
         "deny",
     )
@@ -2933,7 +2935,7 @@ def test_add_allow_policy_denies_a_parameter_expansion_in_the_command_entry():
     than `lib/add_allow_write.py` would actually persist (it parses real
     post-expansion argv)."""
     result = assert_decision(
-        'add-allow-policy --scope user --intent "x" "cat $HOME/file"',
+        'add-allow-policy --scope user --intent "x" --example "cat a" "cat $HOME/file"',
         {"allowedCommands": []},
         "deny",
     )

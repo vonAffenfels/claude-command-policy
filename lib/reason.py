@@ -188,14 +188,15 @@ class NotEscalatedByAnUnrelatedBypassWrapper:
 @dataclass(frozen=True)
 class AddAllowPolicyGrammarViolation:
     """`add-allow-policy` was invoked in a shape other than the ONE accepted
-    grammar - `--scope <user|project> --intent "<why>" "<command>"`, with the
-    command reaching the tool as a single unmangled argument.
+    grammar - `--scope <user|project> --intent "<why>" --example "<command>"
+    [--example ...] '<entry>'`, with the entry reaching the tool as a single
+    unmangled argument.
 
     `violation` is a short controlled-vocabulary code (never prose - see the
     renderer, the one place that turns it into the "wrong use of
     add-allow-policy. Correct use: ..." explanation): `missing_scope`,
     `duplicate_scope`, `invalid_scope_value`, `missing_intent`,
-    `no_command_argument`, `multiple_command_arguments`,
+    `missing_example`, `no_command_argument`, `multiple_command_arguments`,
     `redirect_on_invocation`, or `shell_touched` (a pipeline, a && / || / ;
     list, backgrounding, or command substitution anywhere in the invocation).
 
@@ -227,4 +228,22 @@ class AddAllowPolicyProposalInvalid:
     than bundling every problem into one Reason's own tuple field."""
 
     problem: str
+
+
+@dataclass(frozen=True)
+class AddAllowPolicyExampleRejected:
+    """One `--example` command is NOT allowed by the effective config plus
+    the proposed entry - the entry would not do what it was written for.
+    `why` is the rendered objection the example got (without the
+    equivalence pointer)."""
+
+    example: str
+    why: str
+
+
+@dataclass(frozen=True)
+class AddAllowPolicyEntryChangesNothing:
+    """Every `--example` is already allowed by the effective config alone, so
+    the proposed entry adds nothing - the proposal would only grow the
+    config."""
 

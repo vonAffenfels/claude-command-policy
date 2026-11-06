@@ -218,11 +218,11 @@ def test_classify_buckets_a_bypass_wrapped_command_separately():
 
 
 def test_classify_buckets_an_add_allow_policy_proposal_as_ask():
-    commands = ['add-allow-policy --scope user --intent "why" "ls foo"']
+    proposal = 'add-allow-policy --scope user --intent "why" --example "cat foo" "cat"'
 
-    buckets = session_audit.classify(commands, _config())
+    buckets = session_audit.classify([proposal], _config())
 
-    assert buckets["ask"] == [(1, 'add-allow-policy --scope user --intent "why" "ls foo"')]
+    assert buckets["ask"] == [(1, proposal)]
 
 
 # =============================================================================
